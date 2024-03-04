@@ -4,3 +4,8 @@ docs/doxyhtml
 docs/doxyxml
 docs/exaepi-doxygen-web.tag.xml
 docs/amrex-doxygen-web.tag.xml
+notes
+.build
+.vscode
+data/UrbanPop
+UrbanPop-scripts/read_urbanpop_data
