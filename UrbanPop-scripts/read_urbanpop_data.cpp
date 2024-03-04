@@ -7,22 +7,22 @@ using namespace std;
 
 const vector<string> HH_TYPES = {"hh", "gq"};
 const vector<string> LIVING_ARRANGEMENTS = {"married", "male_no_spouse", "female_no_spouse", "alone", "not_alone"};
-const vector<string> HH_DWGS = {"single_fam_detach", "single_fam_attach", "2_unit", "3_4_unit", "5_9_unit",
-                               "10_19_unit", "20_49_unit", "GE50_unit", "mob_home", "other"};
+const vector<string> HH_DWGS = {"single_fam_detach", "single_fam_attach", "2_unit",    "3_4_unit", "5_9_unit",
+                                "10_19_unit",        "20_49_unit",        "GE50_unit", "mob_home", "other"};
 const vector<string> HH_TENURES = {"own", "rent", "other"};
 const vector<string> PR_SEXES = {"female", "male"};
 const vector<string> PR_RACES = {"white", "blk_af_amer", "asian", "native_amer", "pac_island", "other", "mult"};
 const vector<string> PR_HSPLATS = {"no", "yes"};
 const vector<string> PR_IPRS = {"L050", "050_099", "100_124", "125_149", "150_184", "185_199", "GE200"};
 const vector<string> PR_EMPLOYMENTS = {"not.in.force", "unemp", "employed", "mil"};
-const vector<string> HH_TRAVELS = {"car_truck_van", "public_transportation", "bicycle", "walked", "motorcycle", "taxicab",
-                                   "other", "wfh"};
+const vector<string> HH_TRAVELS = {
+    "car_truck_van", "public_transportation", "bicycle", "walked", "motorcycle", "taxicab", "other", "wfh"};
 const vector<string> PR_VEH_OCCS = {"drove_alone", "carpooled"};
-const vector<string> PR_GRADES = {"preschl", "kind", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th", "11th",
-                                  "12th", "undergrad", "grad"};
+const vector<string> PR_GRADES = {"preschl", "kind", "1st", "2nd",  "3rd",  "4th",  "5th",       "6th",
+                                  "7th",     "8th",  "9th", "10th", "11th", "12th", "undergrad", "grad"};
 
-
-vector<string> split_string(const string &in_pattern, const string &content) {
+vector<string> split_string (const string& in_pattern, const string& content)
+{
     vector<string> split_content;
     regex pattern(in_pattern);
     copy(sregex_token_iterator(content.begin(), content.end(), pattern, -1), sregex_token_iterator(),
@@ -30,7 +30,8 @@ vector<string> split_string(const string &in_pattern, const string &content) {
     return split_content;
 }
 
-uint8_t get_option_index(const string& s, const vector<string> &options, const string &option_name) {
+uint8_t get_option_index (const string& s, const vector<string>& options, const string& option_name)
+{
     if (s.empty()) return options.size();
     auto it = find(options.begin(), options.end(), s);
     if (it != options.end()) return it - options.begin();
@@ -39,27 +40,30 @@ uint8_t get_option_index(const string& s, const vector<string> &options, const s
     return 0;
 }
 
-uint8_t get_option_uint8(const string &s) {
+uint8_t get_option_uint8 (const string& s)
+{
     if (s.empty()) return 0;
     try {
         return stoi(s);
-    } catch (const invalid_argument &e) {
+    } catch (const invalid_argument& e) {
         cerr << "invalid argument " << e.what() << " for string \"" << s << "\"\n";
         return 0;
     }
 }
 
-uint32_t get_option_uint32(const string &s) {
+uint32_t get_option_uint32 (const string& s)
+{
     if (s.empty()) return 0;
     try {
         return stoi(s);
-    } catch (const invalid_argument &e) {
+    } catch (const invalid_argument& e) {
         cerr << "invalid argument " << e.what() << " for string \"" << s << "\"\n";
         return 0;
     }
 }
 
-struct Agent {
+struct Agent
+{
     uint32_t p_id;
     uint64_t pums_id;
     uint32_t h_id;
@@ -89,8 +93,8 @@ struct Agent {
     uint8_t pr_commute;
     uint8_t pr_grade;
 
-
-    Agent(const string &line) {
+    Agent(const string& line)
+    {
         const int NUM_TOKENS = 29;
         auto tokens = split_string(",", line);
         // can have one less tokens if the last column is not set
@@ -130,7 +134,8 @@ struct Agent {
         pr_grade = (tokens.size() == NUM_TOKENS ? get_option_index(tokens[28], PR_GRADES, "pr_grade") : PR_GRADES.size());
     }
 
-    friend ostream &operator<<(ostream &os, const Agent &agent) {
+    friend ostream& operator<<(ostream& os, const Agent& agent)
+    {
         os << agent.p_id << "\t" << agent.pums_id << "\t" << agent.h_id << "\t" << agent.geoid << "\t" << (int) agent.hh_size
            << "\t" << (int) agent.hh_type << "\t" << (int) agent.hh_living_arrangement << "\t" << (int) agent.hh_age << "\t"
            << agent.hh_has_kids << "\t" << agent.hh_income << "\t" << (int) agent.hh_nb_wrks << "\t" << (int) agent.hh_nb_non_wrks
@@ -143,8 +148,8 @@ struct Agent {
     }
 };
 
-
-vector<Agent> read_csv(const string &fname) {
+vector<Agent> read_csv (const string& fname)
+{
     const string HEADER =
         ",p_id,pums_id,h_id,geoid,hh_size,hh_type,hh_living_arrangement,hh_age,hh_has_kids,hh_income,hh_nb_wrks,hh_nb_non_wrks,"
         "hh_nb_adult_wrks,hh_nb_adult_non_wrks,hh_dwg,hh_tenure,hh_vehicles,pr_age,pr_sex,pr_race,pr_hsplat,pr_ipr,pr_naics,"
@@ -166,14 +171,14 @@ vector<Agent> read_csv(const string &fname) {
             }
         } else {
             agents.emplace_back(Agent(line));
-            if (line_num == 496) cout << line_num << "\t" << agents[line_num - 1] << endl;
         }
         line_num++;
     }
     return agents;
 }
 
-int main(int argc, char **argv) {
+int main (int argc, char** argv)
+{
     if (argc != 2) {
         cerr << "Usage: read_urbanpop_data <filename>\n";
         return 0;
