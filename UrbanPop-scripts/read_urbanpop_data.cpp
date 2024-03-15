@@ -2,6 +2,7 @@
 #include <fstream>
 #include <regex>
 #include <string_view>
+#include <unordered_map>
 
 using namespace std;
 
@@ -21,8 +22,7 @@ const vector<string> PR_VEH_OCCS = {"drove_alone", "carpooled"};
 const vector<string> PR_GRADES = {"preschl", "kind", "1st", "2nd",  "3rd",  "4th",  "5th",       "6th",
                                   "7th",     "8th",  "9th", "10th", "11th", "12th", "undergrad", "grad"};
 
-vector<string> split_string (const string& in_pattern, const string& content)
-{
+vector<string> split_string (const string& in_pattern, const string& content) {
     vector<string> split_content;
     regex pattern(in_pattern);
     copy(sregex_token_iterator(content.begin(), content.end(), pattern, -1), sregex_token_iterator(),
@@ -30,8 +30,7 @@ vector<string> split_string (const string& in_pattern, const string& content)
     return split_content;
 }
 
-uint8_t get_option_index (const string& s, const vector<string>& options, const string& option_name)
-{
+uint8_t get_option_index (const string& s, const vector<string>& options, const string& option_name) {
     if (s.empty()) return options.size();
     auto it = find(options.begin(), options.end(), s);
     if (it != options.end()) return it - options.begin();
@@ -40,8 +39,7 @@ uint8_t get_option_index (const string& s, const vector<string>& options, const 
     return 0;
 }
 
-uint8_t get_option_uint8 (const string& s)
-{
+uint8_t get_option_uint8 (const string& s) {
     if (s.empty()) return 0;
     try {
         return stoi(s);
@@ -51,8 +49,7 @@ uint8_t get_option_uint8 (const string& s)
     }
 }
 
-uint32_t get_option_uint32 (const string& s)
-{
+uint32_t get_option_uint32 (const string& s) {
     if (s.empty()) return 0;
     try {
         return stoi(s);
@@ -62,8 +59,7 @@ uint32_t get_option_uint32 (const string& s)
     }
 }
 
-struct Agent
-{
+struct Agent {
     uint32_t p_id;
     uint64_t pums_id;
     uint32_t h_id;
@@ -93,8 +89,7 @@ struct Agent
     uint8_t pr_commute;
     uint8_t pr_grade;
 
-    Agent(const string& line)
-    {
+    Agent(const string& line) {
         const int NUM_TOKENS = 29;
         auto tokens = split_string(",", line);
         // can have one less tokens if the last column is not set
@@ -134,8 +129,7 @@ struct Agent
         pr_grade = (tokens.size() == NUM_TOKENS ? get_option_index(tokens[28], PR_GRADES, "pr_grade") : PR_GRADES.size());
     }
 
-    friend ostream& operator<<(ostream& os, const Agent& agent)
-    {
+    friend ostream& operator<<(ostream& os, const Agent& agent) {
         os << agent.p_id << "\t" << agent.pums_id << "\t" << agent.h_id << "\t" << agent.geoid << "\t" << (int) agent.hh_size
            << "\t" << (int) agent.hh_type << "\t" << (int) agent.hh_living_arrangement << "\t" << (int) agent.hh_age << "\t"
            << agent.hh_has_kids << "\t" << agent.hh_income << "\t" << (int) agent.hh_nb_wrks << "\t" << (int) agent.hh_nb_non_wrks
@@ -148,8 +142,7 @@ struct Agent
     }
 };
 
-vector<Agent> read_csv (const string& fname)
-{
+vector<Agent> read_csv (const string& fname) {
     const string HEADER =
         ",p_id,pums_id,h_id,geoid,hh_size,hh_type,hh_living_arrangement,hh_age,hh_has_kids,hh_income,hh_nb_wrks,hh_nb_non_wrks,"
         "hh_nb_adult_wrks,hh_nb_adult_non_wrks,hh_dwg,hh_tenure,hh_vehicles,pr_age,pr_sex,pr_race,pr_hsplat,pr_ipr,pr_naics,"
@@ -161,9 +154,10 @@ vector<Agent> read_csv (const string& fname)
     }
     string line;
     vector<Agent> agents;
+    unordered_map<uint64_t, int> geoid_counts;
     int line_num = 0;
     while (getline(f, line)) {
-        // first line is headers. Check that they are as expected so there is no version mismatch
+        // first line is headers. check that they are as expected so there is no version mismatch
         if (line_num == 0) {
             if (line != HEADER) {
                 cerr << "Mismatch in file header:\nExpected " << HEADER << "\nRead    " <<  line << endl;
@@ -171,18 +165,37 @@ vector<Agent> read_csv (const string& fname)
             }
         } else {
             agents.emplace_back(Agent(line));
+            auto geoid = agents.back().geoid;
+            auto it = geoid_counts.find(geoid);
+            if (it == geoid_counts.end()) geoid_counts.insert({geoid, 1});
+            else it->second++;
         }
         line_num++;
     }
+    cout << "Found " << geoid_counts.size() << " unique geoids\n";
+    ofstream ofs("geoid-counts.txt");
+    for (auto &[geoid, count]: geoid_counts) {
+        ofs << geoid << " " << count << endl;
+    }
+    ofs.close();
     return agents;
 }
 
-int main (int argc, char** argv)
-{
+void write_binary(const string &fname, const vector<Agent> &agents) {
+    ofstream ofile(fname, ios::binary);
+    auto num_agents = agents.size();
+    ofile.write(reinterpret_cast<const char*>(&num_agents), sizeof(num_agents));
+    for (const auto& agent : agents) {
+        ofile.write(reinterpret_cast<const char*>(&agent), sizeof(agent));
+    }
+}
+
+int main (int argc, char** argv) {
     if (argc != 2) {
         cerr << "Usage: read_urbanpop_data <filename>\n";
         return 0;
     }
-    read_csv(argv[1]);
+    auto agents = read_csv(argv[1]);
+    write_binary(string(argv[1]) + ".bin", agents);
     return 0;
 }

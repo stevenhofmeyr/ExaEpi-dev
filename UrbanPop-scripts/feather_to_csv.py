@@ -10,5 +10,4 @@ df = pandas.read_feather(fname)
 fname, extension = os.path.splitext(fname)
 fname = fname + ".csv"
 print("Writing data to", fname)
-#df.to_csv(fname, na_rep="_")
 df.to_csv(fname)
