@@ -11,7 +11,7 @@ int main(int argc, char** argv) {
     for (;; lines++) {
         UrbanPopAgent agent;
         agent.read_binary(f);
-        cout << agent << endl;
+        //cout << agent << endl;
         if (f.peek() == EOF) break;
     }
     cout << "Read " << lines << " lines\n";

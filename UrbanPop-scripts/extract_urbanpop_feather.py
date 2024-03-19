@@ -6,6 +6,7 @@ import struct
 import pandas
 from pandas.api.types import CategoricalDtype
 import numpy as np
+import time
 
 # note: missing category indexes are written as -1
 hh_type = CategoricalDtype(categories=["hh", "gq"])
@@ -28,7 +29,9 @@ pr_grade = CategoricalDtype(categories=["preschl", "kind", "1st", "2nd", "3rd", 
 
 fname = sys.argv[1]
 print("Reading data from", fname)
+t = time.time()
 df = pandas.read_feather(fname)
+print("Read", len(df.index), "records in %.3f s" % (time.time() - t))
 
 # all the fields parsed, in order
 df.p_id = df.p_id.str.split("-").str[-1].astype("int32")
@@ -72,8 +75,8 @@ fname, extension = os.path.splitext(fname)
 fname_bin = fname + ".bin"
 fname_csv = fname + ".csv"
 
-print("Unique PUMS", len(df.pums_id.unique()), "max length", df.pums_id.map(len).max())
-print("Unique NAICS", len(df.pr_naics.unique()), "max length", df.pr_naics.map(len).max())
+#print("Unique PUMS", len(df.pums_id.unique()), "max length", df.pums_id.map(len).max())
+#print("Unique NAICS", len(df.pr_naics.unique()), "max length", df.pr_naics.map(len).max())
 
 correct_dtypes = df.dtypes
 # first record write -99 for all integer fields, and dashes for strings
@@ -90,7 +93,7 @@ df.insert(4, "hh_income", df.pop("hh_income"))
 df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
 df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
 
-print(df.dtypes)
+#print(df.dtypes)
 
 # print out header file for C++ import
 f_hdr = open("UrbanPopAgentStruct.H", "w")
@@ -138,14 +141,18 @@ print("    }", file=f_hdr)
 
 print("};", file=f_hdr)
 
-print(df.iloc[0])
+#print(df.iloc[0])
 
 print("Writing binary C struct data to", fname_bin)
+t = time.time()
 f = open(fname_bin, "wb")
 for _, row in df.iterrows():
     f.write(struct.pack(fmt, *row))
 f.close()
+print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
 
 print("Writing CSV text data to", fname_csv)
+t = time.time()
 df["pums_id"] = df["pums_id"].astype("string")
 df.to_csv(fname_csv)
+print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
