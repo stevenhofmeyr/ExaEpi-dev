@@ -32,8 +32,10 @@ PUMS_ID_LEN = 13
 NAICS_LEN = 8
 
 def print_header(df):
+    hdr_fname = "UrbanPopAgentStruct.H"
+    print("Writing C++ header file at", hdr_fname)
     # print out header file for C++ import
-    f_hdr = open("UrbanPopAgentStruct.H", "w")
+    f_hdr = open(hdr_fname, "w")
     print("#include <stdlib.h>\n", file=f_hdr)
     print("#include <fstream>\n", file=f_hdr)
     print("struct UrbanPopAgent {", file=f_hdr)
@@ -82,7 +84,7 @@ def print_header(df):
     print("};", file=f_hdr)
 
 
-def process_feather_file(fname, fname_bin):
+def process_feather_file(fname, fname_bin, first):
     print("Reading data from", fname)
     t = time.time()
     df = pandas.read_feather(fname)
@@ -137,7 +139,8 @@ def process_feather_file(fname, fname_bin):
     df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
     df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
 
-    print_header(df)
+    if first:
+        print_header(df)
 
     fmt = ""
     for i in range(len(df.columns)):
@@ -157,19 +160,20 @@ def process_feather_file(fname, fname_bin):
     # save the dtypes
     correct_dtypes = df.dtypes
 
-    # first record write -99 for all integer fields, and dashes for strings
-    check_record = pandas.DataFrame([[-99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99,
-                                      -99, -99, -99, -99, -99, -99, -99, -99, b'-' * PUMS_ID_LEN, b'-' * NAICS_LEN]],
-                                      columns=df.columns)
-    # coerce new record to correct types
-    check_record = check_record.astype(correct_dtypes)
-    df = pandas.concat([check_record, df], ignore_index=True)
+    if first:
+        # first record write -99 for all integer fields, and dashes for strings
+        check_record = pandas.DataFrame([[-99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99,
+                                        -99, -99, -99, -99, -99, -99, -99, -99, b'-' * PUMS_ID_LEN, b'-' * NAICS_LEN]],
+                                        columns=df.columns)
+        # coerce new record to correct types
+        check_record = check_record.astype(correct_dtypes)
+        df = pandas.concat([check_record, df], ignore_index=True)
 
     #print(df.dtypes)
 
 
     #print(df.dtypes)
-    print(df.iloc[0])
+    #print(df.iloc[0])
 
     print("Writing binary C struct data to", fname_bin)
     t = time.time()
@@ -191,5 +195,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", "-o", help="Output file", required=True)
     parser.add_argument("--files", "-f", help="Feather files", required=True, nargs="+")
     args = parser.parse_args()
+    first = True
     for fname in args.files:
-        process_feather_file(fname, args.output)
+        process_feather_file(fname, args.output, first)
+        first = False
