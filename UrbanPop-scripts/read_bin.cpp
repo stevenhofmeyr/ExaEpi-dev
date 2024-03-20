@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
         agent.read_binary(f);
         if (lines == 0) {
             // check first agent is set to -99 values to ensure formatting is correct
-            cout << agent << endl;
+            agent.check_binary_inputs();
         } else {
             agents.push_back(agent);
         }

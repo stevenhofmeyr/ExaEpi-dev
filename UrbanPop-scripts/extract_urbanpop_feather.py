@@ -28,6 +28,59 @@ pr_travel = CategoricalDtype(categories=["car_truck_van", "public_transportation
 pr_veh_occ = CategoricalDtype(categories=["drove_alone", "carpooled"])
 pr_grade = CategoricalDtype(categories=["preschl", "kind", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th", "9th", "10th",
                                          "11th", "12th", "undergrad", "grad"])
+PUMS_ID_LEN = 13
+NAICS_LEN = 8
+
+def print_header(df):
+    # print out header file for C++ import
+    f_hdr = open("UrbanPopAgentStruct.H", "w")
+    print("#include <stdlib.h>\n", file=f_hdr)
+    print("#include <fstream>\n", file=f_hdr)
+    print("struct UrbanPopAgent {", file=f_hdr)
+
+    read_func_str = ""
+    write_str = ""
+    check_str = ""
+
+    for i in range(len(df.columns)):
+        if df.columns[i] == 'pums_id':
+            print("    char " + df.columns[i] + "[" + str(PUMS_ID_LEN) + "];", file=f_hdr)
+            write_str += "        os << \"b'\" << std::string(agent." + df.columns[i] + ", " + str(PUMS_ID_LEN) + ") << \"',\";\n"
+        elif df.columns[i] == 'pr_naics':
+            print("    char " + df.columns[i] + "[" + str(NAICS_LEN) + "];", file=f_hdr)
+            write_str += "        os << \"b\'\" << std::string(agent." + df.columns[i] + ", " + str(NAICS_LEN) + ") << \"'\";\n"
+        elif df.dtypes[i] == np.int8:
+            print("    int8_t " + df.columns[i] + ";", file=f_hdr)
+        elif df.dtypes[i] == np.int32:
+            print("    int32_t " + df.columns[i] + ";", file=f_hdr)
+        elif df.dtypes[i] == np.int64:
+            print("    int64_t " + df.columns[i] + ";", file=f_hdr)
+        else:
+            raise RuntimeError("ERRROR: dtype", df.dtypes[i], "in column", df.columns[i], "doesn't match a format string")
+        if df.columns[i] in ["pums_id", "pr_naics"]:
+            read_func_str += "        f.read(" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
+        else:
+            read_func_str += "        f.read((char*)&" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
+            write_str += "        os << (int64_t)agent." + df.columns[i] + " << ',';\n"
+            check_str += "        if (" + df.columns[i] + " != -99) " + \
+                         "{std::cerr << \"Error: invalid first record for " + df.columns[i] + " \" << (int64_t)" + df.columns[i] + \
+                         " << std::endl; abort();}\n";
+
+    print("\n    void read_binary(std::ifstream &f) {", file=f_hdr)
+    print(read_func_str, file=f_hdr, end='')
+    print("    }\n", file=f_hdr)
+
+    print("\n    friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {", file=f_hdr)
+    print(write_str, file=f_hdr, end="")
+    print("        return os;", file=f_hdr)
+    print("    }", file=f_hdr)
+
+    print("\n    void check_binary_inputs() {", file=f_hdr)
+    print(check_str, file=f_hdr, end="")
+    print("    }", file=f_hdr)
+
+    print("};", file=f_hdr)
+
 
 def process_feather_file(fname, fname_bin):
     print("Reading data from", fname)
@@ -37,7 +90,6 @@ def process_feather_file(fname, fname_bin):
 
     # all the fields parsed, in order
     df.p_id = df.p_id.str.split("-").str[-1].astype("int32")
-    PUMS_ID_LEN = 13
     df.pums_id = df.pums_id.map(lambda x: str(x).ljust(PUMS_ID_LEN)).str.encode("utf-8")#.astype("string")
     max_pums_id_len = df.pums_id.map(len).max()
     if max_pums_id_len != PUMS_ID_LEN:
@@ -62,7 +114,6 @@ def process_feather_file(fname, fname_bin):
     df.pr_race = df.pr_race.astype(pr_race).cat.codes
     df.pr_hsplat = df.pr_hsplat.astype(pr_hsplat).cat.codes
     df.pr_ipr = df.pr_ipr.astype(pr_ipr).cat.codes
-    NAICS_LEN = 8
     df.pr_naics = df.pr_naics.map(lambda x: str(x).ljust(NAICS_LEN)).str.encode("utf-8")#.astype("string")
     max_naics_len = df.pr_naics.map(len).max()
     if max_naics_len != NAICS_LEN:
@@ -79,13 +130,29 @@ def process_feather_file(fname, fname_bin):
     #print("Unique PUMS", len(df.pums_id.unique()), "max length", df.pums_id.map(len).max())
     #print("Unique NAICS", len(df.pr_naics.unique()), "max length", df.pr_naics.map(len).max())
 
-
     # pack structure by moving int32_t value to before all int8_t values
     df.insert(4, "hh_income", df.pop("hh_income"))
 
     # move char arrays to end of struct
     df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
     df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
+
+    print_header(df)
+
+    fmt = ""
+    for i in range(len(df.columns)):
+        if df.columns[i] == 'pums_id':
+            fmt += str(PUMS_ID_LEN) + 's'
+        elif df.columns[i] == 'pr_naics':
+            fmt += str(NAICS_LEN) + 's'
+        elif df.dtypes[i] == np.int8:
+            fmt += 'b'
+        elif df.dtypes[i] == np.int32:
+            fmt += 'i'
+        elif df.dtypes[i] == np.int64:
+            fmt += 'q'
+        else:
+            raise RuntimeError("ERRROR: dtype", df.dtypes[i], "in column", df.columns[i], "doesn't match a format string")
 
     # save the dtypes
     correct_dtypes = df.dtypes
@@ -100,54 +167,9 @@ def process_feather_file(fname, fname_bin):
 
     #print(df.dtypes)
 
-    # print out header file for C++ import
-    f_hdr = open("UrbanPopAgentStruct.H", "w")
-    print("#include <fstream>\n", file=f_hdr)
-    print("struct UrbanPopAgent {", file=f_hdr)
-
-    fmt = ""
-    read_func_str = ""
-    write_str = ""
-
-    for i in range(len(df.columns)):
-        if df.columns[i] == 'pums_id':
-            fmt += str(PUMS_ID_LEN) + 's'
-            print("    char " + df.columns[i] + "[" + str(PUMS_ID_LEN) + "];", file=f_hdr)
-            write_str += "        os << \"b'\" << std::string(agent." + df.columns[i] + ", " + str(PUMS_ID_LEN) + ") << \"',\";\n"
-        elif df.columns[i] == 'pr_naics':
-            fmt += str(NAICS_LEN) + 's'
-            print("    char " + df.columns[i] + "[" + str(NAICS_LEN) + "];", file=f_hdr)
-            write_str += "        os << \"b\'\" << std::string(agent." + df.columns[i] + ", " + str(NAICS_LEN) + ") << \"'\";\n"
-        elif df.dtypes[i] == np.int8:
-            fmt += 'b'
-            print("    int8_t " + df.columns[i] + ";", file=f_hdr)
-        elif df.dtypes[i] == np.int32:
-            fmt += 'i'
-            print("    int32_t " + df.columns[i] + ";", file=f_hdr)
-        elif df.dtypes[i] == np.int64:
-            fmt += 'q'
-            print("    int64_t " + df.columns[i] + ";", file=f_hdr)
-        else:
-            raise RuntimeError("ERRROR: dtype", df.dtypes[i], "in column", df.columns[i], "doesn't match a format string")
-        if df.columns[i] in ["pums_id", "pr_naics"]:
-            read_func_str += "        f.read(" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
-        else:
-            read_func_str += "        f.read((char*)&" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
-            write_str += "        os << (int64_t)agent." + df.columns[i] + " << ',';\n"
-
-    print("\n    void read_binary(std::ifstream &f) {", file=f_hdr)
-    print(read_func_str, file=f_hdr, end='')
-    print("    }\n", file=f_hdr)
-
-    print("\n    friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {", file=f_hdr)
-    print(write_str, file=f_hdr, end="")
-    print("        return os;", file=f_hdr)
-    print("    }", file=f_hdr)
-
-    print("};", file=f_hdr)
 
     #print(df.dtypes)
-    #print(df.iloc[0])
+    print(df.iloc[0])
 
     print("Writing binary C struct data to", fname_bin)
     t = time.time()
@@ -169,6 +191,5 @@ if __name__ == "__main__":
     parser.add_argument("--output", "-o", help="Output file", required=True)
     parser.add_argument("--files", "-f", help="Feather files", required=True, nargs="+")
     args = parser.parse_args()
-    print(args)
     for fname in args.files:
         process_feather_file(fname, args.output)
