@@ -8,7 +8,8 @@ from pandas.api.types import CategoricalDtype
 import numpy as np
 import time
 import argparse
-import pathlib
+import geopandas
+
 
 # note: missing category indexes are written as -1
 hh_type = CategoricalDtype(categories=["hh", "gq"])
@@ -45,28 +46,29 @@ def print_header(df):
     check_str = ""
 
     for i in range(len(df.columns)):
+        c_type = str(df.dtypes[i]) + "_t"
+        if c_type.startswith("float"):
+            c_type = "float"
+
         if df.columns[i] == 'pums_id':
             print("    char " + df.columns[i] + "[" + str(PUMS_ID_LEN) + "];", file=f_hdr)
             write_str += "        os << \"b'\" << std::string(agent." + df.columns[i] + ", " + str(PUMS_ID_LEN) + ") << \"',\";\n"
         elif df.columns[i] == 'pr_naics':
             print("    char " + df.columns[i] + "[" + str(NAICS_LEN) + "];", file=f_hdr)
             write_str += "        os << \"b\'\" << std::string(agent." + df.columns[i] + ", " + str(NAICS_LEN) + ") << \"'\";\n"
-        elif df.dtypes[i] == np.int8:
-            print("    int8_t " + df.columns[i] + ";", file=f_hdr)
-        elif df.dtypes[i] == np.int32:
-            print("    int32_t " + df.columns[i] + ";", file=f_hdr)
-        elif df.dtypes[i] == np.int64:
-            print("    int64_t " + df.columns[i] + ";", file=f_hdr)
         else:
-            raise RuntimeError("ERRROR: dtype", df.dtypes[i], "in column", df.columns[i], "doesn't match a format string")
+            print("    " + c_type + " " + df.columns[i] + ";", file=f_hdr)
         if df.columns[i] in ["pums_id", "pr_naics"]:
             read_func_str += "        f.read(" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
         else:
             read_func_str += "        f.read((char*)&" + df.columns[i] + ", sizeof(" + df.columns[i] + "));\n"
-            write_str += "        os << (int64_t)agent." + df.columns[i] + " << ',';\n"
+            if c_type == "int8_t":
+                c_type = "int32_t"
+            write_str += "        os << (" + c_type + ")agent." + df.columns[i] + " << ',';\n"
             check_str += "        if (" + df.columns[i] + " != -99) " + \
-                         "{std::cerr << \"Error: invalid first record for " + df.columns[i] + " \" << (int64_t)" + df.columns[i] + \
-                         " << std::endl; abort();}\n";
+                         "{std::cerr << \"Error: invalid first record for " + df.columns[i] + " \" << (" + c_type + \
+                         ")" + df.columns[i] + \
+                         " << std::endl; abort();}\n"
 
     print("\n    void read_binary(std::ifstream &f) {", file=f_hdr)
     print(read_func_str, file=f_hdr, end='')
@@ -84,7 +86,7 @@ def print_header(df):
     print("};", file=f_hdr)
 
 
-def process_feather_file(fname, fname_bin, first):
+def process_feather_file(fname, fname_bin, geoid_locs_map, first):
     print("Reading data from", fname)
     t = time.time()
     df = pandas.read_feather(fname)
@@ -139,8 +141,21 @@ def process_feather_file(fname, fname_bin, first):
     df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
     df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
 
+    # add lat/long locations from geoids
+    df.insert(df.columns.get_loc("geoid") + 1, "latitude", float(0))
+    df.latitude = df.latitude.astype("float32")
+    df.insert(df.columns.get_loc("latitude") + 1, "longitude", float(0))
+    df.longitude = df.longitude.astype("float32")
+
     if first:
         print_header(df)
+
+    # find lat/long for each row entry
+    for i in df.index:
+        key = df.loc[i, "geoid"]
+        latitude, longitude = geoid_locs_map[key]
+        df.loc[i, "latitude"] = latitude
+        df.loc[i, "longitude"] = longitude
 
     fmt = ""
     for i in range(len(df.columns)):
@@ -154,6 +169,8 @@ def process_feather_file(fname, fname_bin, first):
             fmt += 'i'
         elif df.dtypes[i] == np.int64:
             fmt += 'q'
+        elif df.dtypes[i] == np.float32:
+            fmt += 'f'
         else:
             raise RuntimeError("ERRROR: dtype", df.dtypes[i], "in column", df.columns[i], "doesn't match a format string")
 
@@ -161,19 +178,16 @@ def process_feather_file(fname, fname_bin, first):
     correct_dtypes = df.dtypes
 
     if first:
-        # first record write -99 for all integer fields, and dashes for strings
-        check_record = pandas.DataFrame([[-99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99, -99,
-                                        -99, -99, -99, -99, -99, -99, -99, -99, b'-' * PUMS_ID_LEN, b'-' * NAICS_LEN]],
-                                        columns=df.columns)
+        check_settings = [-99] * (len(df.columns) - 2)
+        check_settings.extend([b'-' * PUMS_ID_LEN, b'-' * NAICS_LEN])
+        print(check_settings)
+        check_record = pandas.DataFrame([check_settings], columns=df.columns)
         # coerce new record to correct types
         check_record = check_record.astype(correct_dtypes)
         df = pandas.concat([check_record, df], ignore_index=True)
 
-    #print(df.dtypes)
-
-
-    #print(df.dtypes)
-    #print(df.iloc[0])
+    print(df.dtypes)
+    print(df.iloc[-1])
 
     print("Writing binary C struct data to", fname_bin)
     t = time.time()
@@ -190,12 +204,41 @@ def process_feather_file(fname, fname_bin, first):
     print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
 
 
+def process_census_bg_shape_file(dir_names, geoid_locs_map):
+    for dname in dir_names:
+        # remove trailing slash if it exists
+        if dname[-1] == "/":
+            dname = dname[:-1]
+        shape_fname = dname + "/" + os.path.split(dname)[1] + ".shp"
+        # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 columns
+        #df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "geometry"])
+        #df = df.to_crs(crs=4326)
+        #df["centroid"] = df.centroid
+        print("Reading shape files at", shape_fname)
+        df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "INTPTLAT10", "INTPTLON10"], ignore_geometry=True)
+        df.GEOID10 = df.GEOID10.astype("int64")
+        df.INTPTLAT10 = df.INTPTLAT10.astype("float32")
+        df.INTPTLON10 = df.INTPTLON10.astype("float32")
+        df.to_csv(shape_fname + ".csv")
+        print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
+        print(df.dtypes)
+        geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file")
-    parser.add_argument("--output", "-o", help="Output file", required=True)
-    parser.add_argument("--files", "-f", help="Feather files", required=True, nargs="+")
+    parser.add_argument("--output", "-o", required=True, help="Output file")
+    parser.add_argument("--files", "-f", required=True, nargs="+", help="Feather files")
+    parser.add_argument("--shape_files_dir", "-s", required=True, nargs="+",
+                        help="Directories for census block group shape files. Available from\n" + \
+                        "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups")
     args = parser.parse_args()
+
+    geoid_locs_map = {}
+    process_census_bg_shape_file(args.shape_files_dir, geoid_locs_map)
+    print("GEOID to locations map contains", len(geoid_locs_map), "entries")
+
     first = True
     for fname in args.files:
-        process_feather_file(fname, args.output, first)
+        process_feather_file(fname, args.output, geoid_locs_map, first)
         first = False
