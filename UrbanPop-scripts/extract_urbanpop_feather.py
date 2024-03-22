@@ -85,6 +85,8 @@ def print_header(df):
 
     print("};", file=f_hdr)
 
+    print("Wrote", len(df.columns), "fields to", hdr_fname)
+
 
 def process_feather_file(fname, fname_bin, geoid_locs_map, first):
     print("Reading data from", fname)
@@ -150,12 +152,12 @@ def process_feather_file(fname, fname_bin, geoid_locs_map, first):
     if first:
         print_header(df)
 
+    t = time.time()
+    print("Setting lat/long for data", end=" ", flush=True)
     # find lat/long for each row entry
-    for i in df.index:
-        key = df.loc[i, "geoid"]
-        latitude, longitude = geoid_locs_map[key]
-        df.loc[i, "latitude"] = latitude
-        df.loc[i, "longitude"] = longitude
+    df["latitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
+    df["longitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
+    print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
 
     fmt = ""
     for i in range(len(df.columns)):
@@ -180,14 +182,14 @@ def process_feather_file(fname, fname_bin, geoid_locs_map, first):
     if first:
         check_settings = [-99] * (len(df.columns) - 2)
         check_settings.extend([b'-' * PUMS_ID_LEN, b'-' * NAICS_LEN])
-        print(check_settings)
+        #print(check_settings)
         check_record = pandas.DataFrame([check_settings], columns=df.columns)
         # coerce new record to correct types
         check_record = check_record.astype(correct_dtypes)
         df = pandas.concat([check_record, df], ignore_index=True)
+        print("Fields are:\n", df.dtypes, sep="")
 
-    print(df.dtypes)
-    print(df.iloc[-1])
+    #print(df.iloc[-1])
 
     print("Writing binary C struct data to", fname_bin)
     t = time.time()
@@ -210,7 +212,7 @@ def process_census_bg_shape_file(dir_names, geoid_locs_map):
         if dname[-1] == "/":
             dname = dname[:-1]
         shape_fname = dname + "/" + os.path.split(dname)[1] + ".shp"
-        # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 columns
+        # don't actually need to compute the centroid because the block group file has it under the INTPTLAT10 and INTPTLON10 cols
         #df = geopandas.read_file(shape_fname, include_fields=["GEOID10", "geometry"])
         #df = df.to_crs(crs=4326)
         #df["centroid"] = df.centroid
@@ -221,11 +223,12 @@ def process_census_bg_shape_file(dir_names, geoid_locs_map):
         df.INTPTLON10 = df.INTPTLON10.astype("float32")
         df.to_csv(shape_fname + ".csv")
         print("Wrote", len(df.index), "GEOID locations to", shape_fname + ".csv")
-        print(df.dtypes)
+        #print(df.dtypes)
         geoid_locs_map.update(df.set_index("GEOID10").T.to_dict("list"))
 
 
 if __name__ == "__main__":
+    t = time.time()
     parser = argparse.ArgumentParser(description="Convert UrbanPop feather files to C++ struct binary file")
     parser.add_argument("--output", "-o", required=True, help="Output file")
     parser.add_argument("--files", "-f", required=True, nargs="+", help="Feather files")
@@ -242,3 +245,5 @@ if __name__ == "__main__":
     for fname in args.files:
         process_feather_file(fname, args.output, geoid_locs_map, first)
         first = False
+
+    print("Processed", len(args.files), "files in %.2f s" % (time.time() - t))
