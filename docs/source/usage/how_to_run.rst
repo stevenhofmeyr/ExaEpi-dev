@@ -40,13 +40,17 @@ In addition to the ExaEpi inputs, there are also a number of runtime options tha
     The path to the ``*.bin`` file containing worker flow information.
     Must be provided if ``ic_type`` is ``"census"``. Examples of these data files are provided
     in ``ExaEpi/data/CensusData``.
+* ``agent.initial_case_type`` (`string`)
+    Either ``random`` or ``file``. If ``random``, ``agent.num_initial_cases`` must be set.
+    If ``file``, ``agent.case_filename`` must be set. Must be provided if ``ic_type`` is ``"census"``.
 * ``agent.case_filename`` (`string`)
     The path to the ``*.cases`` file containing the initial case data to use.
-    Must be provided if ``ic_type`` is ``"census"``. Examples of these data files are provided
+    Must be provided if ``initial_case_type`` is ``"file"``. Examples of these data files are provided
     in ``ExaEpi/data/CaseData``.
+* ``agent.num_initial_cases`` (int)
+    The number of initial cases to seed. Must be provided if ``initial_case_type`` is ``"random"``.
 * ``agent.nsteps`` (`integer`)
-    The number of time steps to simulate. Currently, time steps are fixed at 12 hours, so to
-    run for 30 days, input `60`.
+    The number of days to simulate.
 * ``agent.plot_int`` (`integer`)
     The number of time steps between successive plot file writes.
 * ``agent.random_travel_int`` (`integer`)
@@ -59,6 +63,18 @@ In addition to the ExaEpi inputs, there are also a number of runtime options tha
     aggregated data files will be named `cases000010`, etc.
 * ``agent.seed`` (`long integer`)
     Use this to specify the random seed to use for the run.
+* ``agent.shelter_start`` (`integer`)
+    Day on which to start shelter-in-place.
+* ``agent.shelter_length`` (`integer`)
+    Number of days shelter in-place-is in effect.
+* ``agent.shelter_compliance`` (`float`)
+    Fraction of agents that comply with shelter-in-place order.
+* ``agent.symptomatic_withdraw`` (`integer`, default: 1)
+    Whether or not to have symptomatic agents withdraw.
+* ``agent.symptomatic_withdraw_compliance`` (`float`, default: 0.95)
+    Compliance rate for agents withdrawing when they have symptoms. Should be 0.0 to 1.0.
+* ``agent.shelter_compliance`` (`float`)
+    Fraction of agents that comply with shelter-in-place order.
 * ``contact.pSC`` (`float`, default: 0.2)
     This is contact matrix scaling factor for schools.
 * ``contact.pCO`` (`float`, default: 1.45)
@@ -85,6 +101,10 @@ In addition to the ExaEpi inputs, there are also a number of runtime options tha
     one entry for each disease strain.
 * ``disease.vac_eff`` (`float`, example: ``0.4``)
     The vaccine efficacy - the probability of transmission will be multiplied by this factor
+* ``disease.mean_immune_time`` (`float`, default: 180)
+    The mean amount of time *in days* agents are immune post-infection
+* ``disease.immune_time_spread`` (`float`, default: 60)
+    The spread associated with the above mean, each agent will draw uniformly from mean +/- spread
 * ``disease.incubation_length_mean`` (`float`, default: ``3.0``)
     Mean length of the incubation period in days. Before this, agents have no symptoms and are not infectious.
 * ``disease.infectious_length_mean`` (`float`, default: ``6.0``)
@@ -105,6 +125,8 @@ In addition to the ExaEpi inputs, there are also a number of runtime options tha
     This option sets the maximum grid size used for MPI domain decomposition. If set to
     ``16``, for example, the domain will be broken up into grids of `16^2` communities, and
     these grids will be assigned to different MPI ranks / GPUs.
+* ``diag.output_filename`` (`string`, default: ``output.dat``)
+    Filename for the output data.
 
 
 In addition to the ExaEpi inputs, there are also a number of runtime options that can be configured for AMReX itself. Please see <https://amrex-codes.github.io/amrex/docs_html/GPU.html#inputs-parameters>`__ for more information on these options.
