@@ -73,8 +73,9 @@ struct TestParams
   */
 struct ICType {
     enum {
-        Demo = 0,   /*!< Initial power law (default) */
-        Census = 1  /*!< Census data */
+        Demo = 0,    /*!< Initial power law (default) */
+        Census = 1,  /*!< Census data */
+        UrbanPop = 2 /*!< UrbanPop generated data */
     };
 };
 

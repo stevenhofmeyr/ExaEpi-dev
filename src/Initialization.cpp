@@ -331,7 +331,6 @@ namespace Initialization
                 break;
             }
         }
-
         ParallelDescriptor::ReduceIntSum(num_infected);
         return num_infected;
     }
@@ -370,7 +369,7 @@ namespace Initialization
                 for (int i = 0; i < demo.Nunit; ++i) if(demo.FIPS[i]==FIPS)units.push_back(i);
                 //int unit = FIPS_code_to_i[FIPS];
                 if (units.size() > 0) {
-                    printf("Infecting %d people in FIPS %d\n", cases.Size_hubs[ihub], FIPS);
+                    amrex::Print() << "Infecting " << cases.Size_hubs[ihub] << " people in FIPS " <<  FIPS << "\n";
                     int u=0;
                     int i=0;
                     while (i < cases.Size_hubs[ihub]) {

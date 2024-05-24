@@ -60,6 +60,7 @@ void DemographicData::InitFromFile (const std::string& fname /*!< Name of file c
     std::getline(is, line);
     Nunit = std::stoi(line);
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(Nunit >= 0, "Number of units can't be negative");
+    amrex::AllPrint() << "Process " << ParallelDescriptor::MyProc() << " found " << Nunit << " lines\n";
 
     myID.resize(Nunit);
     FIPS.resize(Nunit);
