@@ -1,0 +1,10 @@
+ The first line of the file contains the number of units.
+ The following lines have the following data:
+ + ID (US-wide census tract ID)
+ + Population
+ + Number of day workers
+ + FIPS code
+ + Census tract number
+ + Numbers of people in age groups: under 5, 5-17, 18-29, 30-64, and 65+
+ + Number of households with: 1, 2, 3, 4, 5, 6, and 7 member(s)
+ 
