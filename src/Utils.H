@@ -61,6 +61,10 @@ struct TestParams
     */
     std::string case_filename;
 
+    /*! Name of file containing UrbanPop entries in csv format.
+    */
+    std::string urbanpop_filename;
+
     int aggregated_diag_int;            /*!< interval for writing aggregated diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
     std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
@@ -91,7 +95,7 @@ namespace Utils
 
     void get_test_params (ExaEpi::TestParams& params, const std::string& prefix);
 
-    amrex::Geometry get_geometry (const DemographicData& demo,
+    amrex::Geometry get_geometry (int Ncommunities,
                                   const ExaEpi::TestParams& params);
 
 }

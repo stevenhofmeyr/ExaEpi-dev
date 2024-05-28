@@ -153,6 +153,8 @@ public:
                            amrex::iMultiFab& comm_mf,
                            DemographicData& demo);
 
+    void initAgentsUrbanPop ();
+
     void morningCommute(amrex::MultiFab&);
 
     void eveningCommute(amrex::MultiFab&);

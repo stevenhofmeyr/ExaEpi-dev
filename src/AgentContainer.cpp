@@ -602,6 +602,301 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
     amrex::Gpu::streamSynchronize();
 }
 
+
+/*! \brief Initialize agents for ExaEpi::ICType::UrbanPop
+*/
+void AgentContainer::initAgentsUrbanPop ()
+{
+    BL_PROFILE("initAgentsUrbanPop");
+
+    const Box& domain = Geom(0).Domain();
+
+    amrex::Abort("UrbanPop not yet implemented\n");
+
+    /*
+    num_residents.setVal(0);
+    unit_mf.setVal(-1);
+    FIPS_mf.setVal(-1);
+    comm_mf.setVal(-1);
+
+    iMultiFab num_families(num_residents.boxArray(), num_residents.DistributionMap(), 7, 0);
+    iMultiFab fam_offsets (num_residents.boxArray(), num_residents.DistributionMap(), 7, 0);
+    iMultiFab fam_id (num_residents.boxArray(), num_residents.DistributionMap(), 7, 0);
+    num_families.setVal(0);
+
+#ifdef AMREX_USE_OMP
+#pragma omp parallel if (Gpu::notInLaunchRegion())
+#endif
+    for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    {
+        auto unit_arr = unit_mf[mfi].array();
+        auto FIPS_arr = FIPS_mf[mfi].array();
+        auto comm_arr = comm_mf[mfi].array();
+        auto nf_arr = num_families[mfi].array();
+        auto nr_arr = num_residents[mfi].array();
+
+        auto unit_on_proc = demo.Unit_on_proc_d.data();
+        auto Start = demo.Start_d.data();
+        auto FIPS = demo.FIPS_d.data();
+        auto Tract = demo.Tract_d.data();
+        auto Population = demo.Population_d.data();
+
+        auto H1 = demo.H1_d.data();
+        auto H2 = demo.H2_d.data();
+        auto H3 = demo.H3_d.data();
+        auto H4 = demo.H4_d.data();
+        auto H5 = demo.H5_d.data();
+        auto H6 = demo.H6_d.data();
+        auto H7 = demo.H7_d.data();
+
+        auto N5  = demo.N5_d.data();
+        auto N17 = demo.N17_d.data();
+        //auto N29 = demo.N29_d.data();
+        //auto N64 = demo.N64_d.data();
+        //auto N65plus = demo.N65plus_d.data();
+
+        auto Ncommunity = demo.Ncommunity;
+
+        auto bx = mfi.tilebox();
+        amrex::ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, amrex::RandomEngine const& engine) noexcept
+        {
+            int community = (int) domain.index(IntVect(AMREX_D_DECL(i, j, k)));
+            if (community >= Ncommunity) { return; }
+            comm_arr(i, j, k) = community;
+
+            int unit = 0;
+            while (community >= Start[unit+1]) { unit++; }
+            unit_on_proc[unit] = 1;
+            unit_arr(i, j, k) = unit;
+            FIPS_arr(i, j, k, 0) = FIPS[unit];
+            FIPS_arr(i, j, k, 1) = Tract[unit];
+
+            int community_size;
+            if (Population[unit] < (1000 + 2000*(community - Start[unit]))) {
+                community_size = 0;  // Don't set up any residents; workgroup-only
+            }
+            else {
+                community_size = 2000;   // Standard 2000-person community
+            }
+
+            int p_hh[7] = {330, 670, 800, 900, 970, 990, 1000};
+            int num_hh = H1[unit] + H2[unit] + H3[unit] +
+                H4[unit] + H5[unit] + H6[unit] + H7[unit];
+            if (num_hh) {
+                p_hh[0] = 1000 * H1[unit] / num_hh;
+                p_hh[1] = 1000* (H1[unit] + H2[unit]) / num_hh;
+                p_hh[2] = 1000* (H1[unit] + H2[unit] + H3[unit]) / num_hh;
+                p_hh[3] = 1000* (H1[unit] + H2[unit] + H3[unit] + H4[unit]) / num_hh;
+                p_hh[4] = 1000* (H1[unit] + H2[unit] + H3[unit] +
+                                 H4[unit] + H5[unit]) / num_hh;
+                p_hh[5] = 1000* (H1[unit] + H2[unit] + H3[unit] +
+                                 H4[unit] + H5[unit] + H6[unit]) / num_hh;
+                p_hh[6] = 1000;
+            }
+
+            int npeople = 0;
+            while (npeople < community_size + 1) {
+                int il  = amrex::Random_int(1000, engine);
+
+                int family_size = 1;
+                while (il > p_hh[family_size]) { ++family_size; }
+                AMREX_ASSERT(family_size > 0);
+                AMREX_ASSERT(family_size <= 7);
+
+                nf_arr(i, j, k, family_size-1) += 1;
+                npeople += family_size;
+            }
+
+            AMREX_ASSERT(npeople == nf_arr(i, j, k, 0) +
+                         2*nf_arr(i, j, k, 1) +
+                         3*nf_arr(i, j, k, 2) +
+                         4*nf_arr(i, j, k, 3) +
+                         5*nf_arr(i, j, k, 4) +
+                         6*nf_arr(i, j, k, 5) +
+                         7*nf_arr(i, j, k, 6));
+
+            nr_arr(i, j, k, 5) = npeople;
+        });
+
+        int nagents;
+        int ncomp = num_families[mfi].nComp();
+        int ncell = num_families[mfi].numPts();
+        {
+            BL_PROFILE("setPopulationCounts_prefixsum")
+            const int* in = num_families[mfi].dataPtr();
+            int* out = fam_offsets[mfi].dataPtr();
+            nagents = Scan::PrefixSum<int>(ncomp*ncell,
+                            [=] AMREX_GPU_DEVICE (int i) -> int {
+                                int comp = i / ncell;
+                                return (comp+1)*in[i];
+                            },
+                            [=] AMREX_GPU_DEVICE (int i, int const& x) { out[i] = x; },
+                                               Scan::Type::exclusive, Scan::retSum);
+        }
+        {
+            BL_PROFILE("setFamily_id_prefixsum")
+            const int* in = num_families[mfi].dataPtr();
+            int* out = fam_id[mfi].dataPtr();
+            Scan::PrefixSum<int>(ncomp*ncell,
+                                 [=] AMREX_GPU_DEVICE (int i) -> int {
+                                     return in[i];
+                                 },
+                                 [=] AMREX_GPU_DEVICE (int i, int const& x) { out[i] = x; },
+                                 Scan::Type::exclusive, Scan::retSum);
+        }
+
+        auto offset_arr = fam_offsets[mfi].array();
+        auto fam_id_arr = fam_id[mfi].array();
+        auto& agents_tile = GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
+        agents_tile.resize(nagents);
+        auto aos = &agents_tile.GetArrayOfStructs()[0];
+        auto& soa = agents_tile.GetStructOfArrays();
+
+        auto status_ptr = soa.GetIntData(IntIdx::status).data();
+        auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+        auto family_ptr = soa.GetIntData(IntIdx::family).data();
+        auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+        auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+        auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+        auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+        auto school_ptr = soa.GetIntData(IntIdx::school).data();
+        auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
+
+        auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
+        auto timer_ptr = soa.GetRealData(RealIdx::treatment_timer).data();
+        auto dx = ParticleGeom(0).CellSizeArray();
+        auto my_proc = ParallelDescriptor::MyProc();
+
+        Long pid;
+#ifdef AMREX_USE_OMP
+#pragma omp critical (init_agents_nextid)
+#endif
+        {
+            pid = PType::NextID();
+            PType::NextID(pid+nagents);
+        }
+        AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
+            static_cast<Long>(pid + nagents) < LastParticleID,
+            "Error: overflow on agent id numbers!");
+
+        amrex::ParallelForRNG(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n, amrex::RandomEngine const& engine) noexcept
+        {
+            int nf = nf_arr(i, j, k, n);
+            if (nf == 0) return;
+
+            int unit = unit_arr(i, j, k);
+            int community = comm_arr(i, j, k);
+            int family_id = fam_id_arr(i, j, k, n);
+            int family_size = n + 1;
+            int num_to_add = family_size * nf;
+
+            int community_size;
+            if (Population[unit] < (1000 + 2000*(community - Start[unit]))) {
+                community_size = 0;  // Don't set up any residents; workgroup-only
+            }
+            else {
+                community_size = 2000;   // Standard 2000-person community
+            }
+
+            int p_schoolage = 0;
+            if (community_size) {  // Only bother for residential communities
+                if (N5[unit] + N17[unit]) {
+                    p_schoolage = 100*N17[unit] / (N5[unit] + N17[unit]);
+                }
+                else {
+                    p_schoolage = 76;
+                }
+            }
+
+            int start = offset_arr(i, j, k, n);
+            for (int ip = start; ip < start + num_to_add; ++ip) {
+                auto& agent = aos[ip];
+                int il2 = amrex::Random_int(100, engine);
+                int nborhood = amrex::Random_int(4, engine);
+                int age_group = -1;
+
+                if (family_size == 1) {
+                    if (il2 < 28) { age_group = 4; }      // single adult age 65+
+                    else if (il2 < 68) { age_group = 3; } // age 30-64 (ASSUME 40%)
+                    else { age_group = 2; }               // single adult age 19-29
+                    nr_arr(i, j, k, age_group) += 1;
+                } else if (family_size == 2) {
+                    if (il2 == 0) {
+                        // 1% probability of one parent + one child
+                        int il3 = amrex::Random_int(100, engine);
+                        if (il3 < 2) { age_group = 4; }        // one parent, age 65+
+                        else if (il3 < 62) { age_group = 3; }  // one parent 30-64 (ASSUME 60%)
+                        else { age_group = 2; }                // one parent 19-29
+                        nr_arr(i, j, k, age_group) += 1;
+                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
+                            age_group = 1; // 22.0% of total population ages 5-18
+                        } else {
+                            age_group = 0;   // 6.8% of total population ages 0-4
+                        }
+                        nr_arr(i, j, k, age_group) += 1;
+                    } else {
+                        // 2 adults, 28% over 65 (ASSUME both same age group)
+                        if (il2 < 28) { age_group = 4; }      // single adult age 65+
+                        else if (il2 < 68) { age_group = 3; } // age 30-64 (ASSUME 40%)
+                        else { age_group = 2; }               // single adult age 19-29
+                        nr_arr(i, j, k, age_group) += 2;
+                    }
+                }
+
+                if (family_size > 2) {
+                    // ASSUME 2 adults, of the same age group
+                    if (il2 < 2) { age_group = 4; }  // parents are age 65+
+                    else if (il2 < 62) { age_group = 3; }  // parents 30-64 (ASSUME 60%)
+                    else { age_group = 2; }  // parents 19-29
+                    nr_arr(i, j, k, age_group) += 2;
+
+                    // Now pick the children's age groups
+                    for (int nc = 2; nc < family_size; ++nc) {
+                        if (((int) amrex::Random_int(100, engine)) < p_schoolage) {
+                            age_group = 1; // 22.0% of total population ages 5-18
+                        } else {
+                            age_group = 0;   // 6.8% of total population ages 0-4
+                        }
+                        nr_arr(i, j, k, age_group) += 1;
+                    }
+                }
+
+                agent.pos(0) = (i + 0.5_rt)*dx[0];
+                agent.pos(1) = (j + 0.5_rt)*dx[1];
+                agent.id()  = pid+ip;
+                agent.cpu() = my_proc;
+
+                status_ptr[ip] = 0;
+                counter_ptr[ip] = 0.0_rt;
+                timer_ptr[ip] = 0.0_rt;
+                age_group_ptr[ip] = age_group;
+                family_ptr[ip] = family_id++;
+                home_i_ptr[ip] = i;
+                home_j_ptr[ip] = j;
+                work_i_ptr[ip] = i;
+                work_j_ptr[ip] = j;
+                nborhood_ptr[ip] = nborhood;
+                work_nborhood_ptr[ip] = 5*nborhood;
+                workgroup_ptr[ip] = 0;
+
+                if (age_group == 0) {
+                    school_ptr[ip] = 5; // note - need to handle playgroups
+                } else if (age_group == 1) {
+                    school_ptr[ip] = assign_school(nborhood, engine);
+                } else{
+                    school_ptr[ip] = -1;
+                }
+            }
+        });
+    }
+
+    demo.CopyToHostAsync(demo.Unit_on_proc_d, demo.Unit_on_proc);
+    amrex::Gpu::streamSynchronize();
+    */
+}
+
 /*! \brief Send agents on a random walk around the neighborhood
 
     For each agent, set its position to a random one near its current position

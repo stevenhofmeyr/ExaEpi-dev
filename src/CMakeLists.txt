@@ -22,7 +22,10 @@ set(_sources
          InteractionModWork.H
          InteractionModelLibrary.H
          Utils.H
-         Utils.cpp)
+         Utils.cpp
+         UrbanPopAgentStruct.H
+         UrbanPopData.H
+         UrbanPopData.cpp)
 
 # List of input files
 set(_input_files )

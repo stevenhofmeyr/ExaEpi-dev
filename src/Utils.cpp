@@ -55,6 +55,9 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         } else {
             amrex::Abort("initial case type not recognized");
         }
+    } else if (ic_type == "urbanpop") {
+        params.ic_type = ICType::UrbanPop;
+        pp.get("urbanpop_filename", params.urbanpop_filename);
     } else {
         amrex::Abort("ic type not recognized");
     }
@@ -80,15 +83,15 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
 /*! \brief Set computational domain, i.e., number of cells in each direction, from the
     demographic data (number of communities).
  *
- *  If the initialization type (ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census, then
+ *  If the initialization type (ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census or ExaEpi::ICType::UrbanPop, then
  *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity
+ *    integer that is greater than #DemographicData::Ncommunity or #UrbanPopData::num_block_groups
  *  + The physical size is 1.0 in each dimension.
  *
  *  A periodic Cartesian grid is defined.
 */
-Geometry ExaEpi::Utils::get_geometry (const DemographicData&    demo,   /*!< demographic data */
-                                      const TestParams&         params  /*!< test parameters */ ) {
+Geometry ExaEpi::Utils::get_geometry (int Ncommunities,      /*!< from demographic or UrbanPop data */
+                                      const TestParams& params  /*!< test parameters */ ) {
     int is_per[BL_SPACEDIM];
     for (int i = 0; i < BL_SPACEDIM; i++) {
         is_per[i] = true;
@@ -103,22 +106,19 @@ Geometry ExaEpi::Utils::get_geometry (const DemographicData&    demo,   /*!< dem
         IntVect domain_hi(AMREX_D_DECL(params.size[0]-1,params.size[1]-1,params.size[2]-1));
         base_domain = Box(domain_lo, domain_hi);
 
-        for (int n = 0; n < BL_SPACEDIM; n++)
-        {
+        for (int n = 0; n < BL_SPACEDIM; n++) {
             real_box.setLo(n, 0.0);
             real_box.setHi(n, 3000.0);
         }
-
-    } else if (params.ic_type == ICType::Census) {
+    } else if (params.ic_type == ICType::Census || params.ic_type == ICType::UrbanPop) {
         IntVect iv;
-        iv[0] = iv[1] = (int) std::floor(std::sqrt((double) demo.Ncommunity));
-        while (iv[0]*iv[1] <= demo.Ncommunity) {
+        iv[0] = iv[1] = (int) std::floor(std::sqrt((double)Ncommunities));
+        while (iv[0]*iv[1] <= Ncommunities) {
             ++iv[0];
         }
         base_domain = Box(IntVect(AMREX_D_DECL(0, 0, 0)), iv-1);
 
-        for (int n = 0; n < BL_SPACEDIM; n++)
-        {
+        for (int n = 0; n < BL_SPACEDIM; n++) {
             real_box.setLo(n, 0.0);
             real_box.setHi(n, 1.0);
         }

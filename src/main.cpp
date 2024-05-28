@@ -10,6 +10,7 @@
 #include "AgentContainer.H"
 #include "CaseData.H"
 #include "DemographicData.H"
+#include "UrbanPopData.H"
 #include "Initialization.H"
 #include "IO.H"
 #include "Utils.H"
@@ -96,14 +97,25 @@ void runAgent ()
     ExaEpi::Utils::get_test_params(params, "agent");
 
     DemographicData demo;
-    if (params.ic_type == ICType::Census) { demo.InitFromFile(params.census_filename); }
+    UrbanPopData urban_pop;
+    int Ncommunities = 0;
+    switch (params.ic_type) {
+        case ICType::Census:
+            demo.InitFromFile(params.census_filename);
+            Ncommunities = demo.Ncommunity;
+            break;
+        case ICType::UrbanPop:
+            urban_pop.InitFromFile(params.urbanpop_filename);
+            Ncommunities = urban_pop.num_block_groups;
+            break;
+    }
 
     CaseData cases;
     if (params.ic_type == ICType::Census && params.initial_case_type == "file") {
         cases.InitFromFile(params.case_filename);
     }
 
-    Geometry geom = ExaEpi::Utils::get_geometry(demo, params);
+    Geometry geom = ExaEpi::Utils::get_geometry(Ncommunities, params);
 
     BoxArray ba;
     DistributionMapping dm;
@@ -153,18 +165,22 @@ void runAgent ()
 
     {
         BL_PROFILE_REGION("Initialization");
-        if (params.ic_type == ICType::Demo) {
-            pc.initAgentsDemo(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
-        } else if (params.ic_type == ICType::Census) {
-            pc.initAgentsCensus(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
-            ExaEpi::Initialization::read_workerflow(demo, params, unit_mf, comm_mf, pc);
-            if (params.initial_case_type == "file") {
-                ExaEpi::Initialization::setInitialCasesFromFile(pc, unit_mf, FIPS_mf, comm_mf,
-                                                        cases, demo);
-            } else {
-                ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf,
-                                                              params.num_initial_cases, demo);
-            }
+        switch (params.ic_type) {
+            case ICType::Demo:
+                pc.initAgentsDemo(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
+                break;
+            case ICType::Census:
+                pc.initAgentsCensus(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
+                ExaEpi::Initialization::read_workerflow(demo, params, unit_mf, comm_mf, pc);
+                if (params.initial_case_type == "file") {
+                    ExaEpi::Initialization::setInitialCasesFromFile(pc, unit_mf, FIPS_mf, comm_mf, cases, demo);
+                } else {
+                    ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
+                }
+                break;
+            case ICType::UrbanPop:
+                pc.initAgentsUrbanPop();
+                break;
         }
     }
 

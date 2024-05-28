@@ -111,8 +111,12 @@ def print_header(df):
                    "strncpy(" + col + ", tokens[" + str(i) + "].c_str(), " + string_fields[col] + ");\n" \
                    "        else memset(" + col + ", 0, " + string_fields[col] + ");\n"
         else:
-            hdr += "        " + col + " = stof(tokens[" + str(i) + "]);\n"
-
+            if df.dtypes.iloc[i] == "float32":
+                hdr += "        " + col + " = stof(tokens[" + str(i) + "]);\n"
+            elif df.dtypes.iloc[i] == "int64":
+                hdr += "        " + col + " = stol(tokens[" + str(i) + "]);\n"
+            else:
+                hdr += "        " + col + " = stoi(tokens[" + str(i) + "]);\n"
     hdr += """
         return true;
     }\n"""
