@@ -31,7 +31,7 @@ struct UrbanPopData
 
     // the vectors have one entry per agent
     amrex::Vector<int64_t> geoid;    // the census block group ID - determines the community number
-    amrex::Vector<int> h_id;         // the ID of the household this agent belongs to
+    amrex::Vector<int> h_id;         // the ID of the household this agent belongs to - this is the same as the family ID
     amrex::Vector<int> pr_age;       // age of this agent
     amrex::Vector<int> pr_emp_stat;  // whether employed or not
     amrex::Vector<int> pr_commute;   // commute distance
