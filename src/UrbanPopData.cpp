@@ -6,6 +6,7 @@
 #include <string>
 #include <sstream>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
 
 #include <AMReX_BLassert.H>
@@ -19,6 +20,26 @@
 
 using namespace amrex;
 
+struct GeoidHH {
+    int64_t geoid;
+    int h_id;
+
+    GeoidHH(int64_t geoid, int h_id) : geoid(geoid), h_id(h_id) {}
+
+    bool operator==(const GeoidHH &other) const {
+        return geoid == other.geoid && h_id == other.h_id;
+    }
+};
+
+namespace std {
+    template <>
+    struct hash<GeoidHH> {
+        size_t operator()(const GeoidHH &elem) const {
+            return std::hash<int64_t>{}(elem.geoid) ^ (std::hash<int64_t>{}(elem.h_id) << 1);
+        }
+    };
+}
+
 /*! \brief Read in UrbanPop data from given file */
 void UrbanPopData::InitFromFile (const std::string& fname)
 {
@@ -29,7 +50,6 @@ void UrbanPopData::InitFromFile (const std::string& fname)
     // its data structures
 
     std::vector<UrbanPopAgent> agents;
-    std::unordered_set<int64_t> unique_geoids;
     std::ifstream f(fname);
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     // the first line contains the header
@@ -46,14 +66,9 @@ void UrbanPopData::InitFromFile (const std::string& fname)
             amrex::Abort(os.str());
         }
         agents.push_back(agent);
-        unique_geoids.insert(agent.geoid);
     }
 
     num_agents = agents.size();
-    //for (auto geoid : unique_geoids) {
-    //    amrex::Print() << geoid << std::endl;
-    //}
-    num_block_groups = unique_geoids.size();
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(num_agents > 0, "Number of agents must be positive");
 
@@ -63,17 +78,43 @@ void UrbanPopData::InitFromFile (const std::string& fname)
     pr_emp_stat.resize(num_agents);
     pr_commute.resize(num_agents);
 
+    int num_employed = 0;
+    int num_workers = 0;
+    int num_military = 0;
+    // used for counting up the number of unique census block groups
+    std::unordered_set<int64_t> unique_geoids;
+    // used for counting up the number of unique households and the number working in each household
+    // note that the h_id is only unique to a block group, and not across block groups. Hence the hash table uses the geoid, h_id
+    // as the key
+    std::unordered_map<GeoidHH, int> households;
     for (int i = 0; i < num_agents; i++) {
         UrbanPopAgent &agent = agents[i];
         geoid[i] = agent.geoid;
         h_id[i] = agent.h_id;
         pr_age[i] = agent.pr_age;
         pr_emp_stat[i] = agent.pr_emp_stat;
+        // crude estimate based on employment status
+        //if (agent.pr_emp_stat == 2 || agent.pr_emp_stat == 3) num_employed++;
+        if (agent.pr_emp_stat == 2) num_employed++;
+        if (agent.pr_emp_stat == 3) num_military++;
         pr_commute[i] = agent.pr_commute;
+        unique_geoids.insert(agent.geoid);
+        auto elem = households.find({agent.geoid, agent.h_id});
+        if (elem == households.end()) {
+            households.insert({GeoidHH(agent.geoid, agent.h_id), agent.hh_nb_wrks});
+            num_workers += agent.hh_nb_wrks;
+        } else if (elem->second != agent.hh_nb_wrks) {
+            std::cerr << "agent mismatch in nb_wrks: previously " << elem->second << ", now " << (int)agent.hh_nb_wrks << "\n";
+        }
     }
 
+    num_block_groups = unique_geoids.size();
+
     amrex::Print() << "Total population " << num_agents << "\n";
-    //amrex::Print() << "Total workers " << total_workers << "\n";
+    amrex::Print() << "Total employed " << num_employed << "\n";
+    amrex::Print() << "Total military " << num_military << "\n";
+    amrex::Print() << "Total workers " << num_workers << "\n";
+    amrex::Print() << "Number of households: " << households.size() << "\n";
     amrex::Print() << "Number of communities: " << num_block_groups << "\n";
 
     CopyDataToDevice();
