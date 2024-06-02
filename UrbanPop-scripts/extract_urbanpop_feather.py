@@ -103,7 +103,13 @@ def print_header(df):
 
         string buf;
         if (!getline(f, buf)) return false;
-        auto tokens = split(buf, ',');\n\n"""
+        std::vector<string> tokens = split(buf, ',');\n"""
+    num_cols = len(df.columns)
+    hdr += "        if (tokens.size() < " + str(num_cols - 1) + ") {\n" \
+           "            p_id = -1;\n" \
+           "            return true;\n" \
+           "        }\n" \
+           "        if (tokens.size() == " + str(num_cols - 1) + ") tokens.push_back(\"\");\n\n"
 
     for i, col in enumerate(df.columns):
         if col in string_fields:
@@ -220,6 +226,12 @@ def process_feather_files(fnames, out_fname, geoid_locs_map):
 
     print("Fields are:\n", df.dtypes, sep="")
 
+    #print("Sorting by geoid")
+    print("Sorting by lat/long")
+    t = time.time()
+    #df.sort_values(by=["geoid"], inplace=True)
+    df.sort_values(by=["latitude", "longitude"], inplace=True)
+    print("Sorted in %.3f s" % (time.time() - t))
     print("Writing CSV text data to", out_fname)
     t = time.time()
     df.to_csv(out_fname, index=False)
