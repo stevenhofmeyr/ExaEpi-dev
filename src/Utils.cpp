@@ -85,7 +85,7 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
  *
  *  If the initialization type (ExaEpi::TestParams::ic_type) is ExaEpi::ICType::Census or ExaEpi::ICType::UrbanPop, then
  *  + The domain is a 2D square, where the total number of cells is the lowest square of an
- *    integer that is greater than #DemographicData::Ncommunity or #UrbanPopData::num_block_groups
+ *    integer that is greater than #DemographicData::Ncommunity or #UrbanPopData::all_num_block_groups
  *  + The physical size is 1.0 in each dimension.
  *
  *  A periodic Cartesian grid is defined.
@@ -96,6 +96,36 @@ Geometry ExaEpi::Utils::get_geometry (int Ncommunities,      /*!< from demograph
     for (int i = 0; i < BL_SPACEDIM; i++) {
         is_per[i] = true;
     }
+
+    RealBox real_box_latlong;
+    // latitude
+    real_box_latlong.setLo(0, 31.792004);
+    real_box_latlong.setHi(0, 36.959385);
+    // longitude
+    real_box_latlong.setLo(1, -109.00478);
+    real_box_latlong.setHi(1, -103.053505);
+
+    IntVect dom_lo(AMREX_D_DECL(0, 0, 0));
+    IntVect dom_hi(AMREX_D_DECL(100, 100, 100));
+    Box base_domain_latlong(dom_lo, dom_hi);
+    Geometry geom_latlong;
+    int non_periodic[] = {false, false};
+    geom_latlong.define(base_domain_latlong, &real_box_latlong, CoordSys::cartesian, non_periodic);
+
+    amrex::Print() << "latlong base domain: " << geom_latlong.Domain()
+                   << " cell size array " << geom_latlong.CellSizeArray()[0] << ", "  << geom_latlong.CellSizeArray()[1] << "\n";
+
+    /*BoxArray ba;
+    DistributionMapping dm;
+    ba.define(geom.Domain());
+    ba.maxSize(params.max_grid_size);
+    dm.define(ba);
+
+    // each grid point in a box corresponds to a community
+    amrex::Print() << "Base domain is: " << geom.Domain() << "\n";
+    amrex::Print() << "Max grid size is: " << params.max_grid_size << "\n";
+    amrex::Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
+    */
 
     RealBox real_box;
     Box base_domain;

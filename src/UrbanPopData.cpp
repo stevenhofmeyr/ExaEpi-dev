@@ -8,6 +8,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <vector>
+#include <filesystem>
 
 #include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
@@ -19,6 +20,15 @@
 #include "UrbanPopAgentStruct.H"
 
 using namespace amrex;
+
+using std::string;
+using std::to_string;
+using std::vector;
+using std::unordered_map;
+using std::unordered_set;
+using std::ifstream;
+using std::ostringstream;
+
 
 struct GeoidHH {
     int64_t geoid;
@@ -40,56 +50,110 @@ namespace std {
     };
 }
 
-/*! \brief Read in UrbanPop data from given file */
-void UrbanPopData::InitFromFile (const std::string& fname)
+static std::pair<int, double> get_all_load_balance(long num) {
+    int all = num;
+    ParallelDescriptor::ReduceIntSum(all);
+    int max_num = num;
+    ParallelDescriptor::ReduceIntMax(max_num);
+    double load_balance = (double)all / (double)ParallelDescriptor::NProcs() / max_num;
+    return {all, load_balance};
+}
+
+/*! \brief Read in UrbanPop data from given file
+* Each process reads in a non-overlapping chunk of the file and uses that to populate the agent array. The reading starts at an
+* offset in the file which is determined by dividing the file size by the number of processes. Hence the starting position could
+* be partway through a line, and it is unlikely to be a the beginning of a block group. So each process must scan until it
+* reaches a new block group.
+*/
+void UrbanPopData::InitFromFile (const string& fname)
 {
     BL_PROFILE("UrbanPopData::InitFromFile");
 
-    // FIXME: currently, each rank reads in the whole file. This is very inefficient for larger files and we expect the full
-    // US-scale UrbanPop data to be around 40GB. Hence each rank should read in a subset of the file and use that to populate
-    // its data structures
-
-    std::vector<UrbanPopAgent> agents;
-    std::ifstream f(fname);
-    if (!f) amrex::Abort("Could not open file " + fname + "\n");
-    // the first line contains the header
-    std::string buf;
-    if (!getline(f, buf)) amrex::Abort("Could not read first line of file " + fname + "\n");
-    // used for counting up the number of unique census block groups
-    std::unordered_set<int64_t> unique_geoids;
-    // used for counting up the number of unique households and assigning a unique number to each
-    // note that the h_id is only unique to a block group, and not across block groups. Hence the hash table uses the geoid, h_id
-    std::unordered_map<GeoidHH, int> households;
-    int line = 0;
-    int num_households = 0;
-    for (;; line++) {
-        UrbanPopAgent agent;
+    auto read_check_agent = [](UrbanPopAgent &agent, ifstream &f, const string &fname) {
         try {
-            if (!agent.read_csv(f)) break;
+            if (!agent.read_csv(f)) return false;
         } catch (const std::exception &ex) {
-            std::ostringstream os;
-            os << "Error reading file " << fname << " on line " << line << ": " << ex.what() << std::endl;
+            ostringstream os;
+            os << "Error reading file " << fname << ": " << ex.what() << "\n";
             amrex::Abort(os.str());
         }
+        return true;
+    };
+
+    auto my_proc = ParallelDescriptor::MyProc();
+    auto num_procs = ParallelDescriptor::NProcs();
+    // Each rank reads a fraction of the file.
+    size_t fsize = std::filesystem::file_size(fname);
+    amrex::Print() << "Size of " << fname << " is " << fsize << "\n";
+    size_t chunk = fsize / num_procs;
+    size_t my_offset = chunk * my_proc;
+
+
+    ifstream f(fname);
+    if (!f) amrex::Abort("Could not open file " + fname + "\n");
+    f.seekg(my_offset);
+    string buf;
+    if (my_proc == 0) {
+        // the first line in the file contains the header, so skip it
+        if (!getline(f, buf)) amrex::Abort("Could not read line of file " + fname + " at " + to_string(my_offset) + "\n");
+    }
+    int num_households = 0;
+    int64_t current_geoid = -1;
+    UrbanPopAgent agent;
+    auto start_pos = f.tellg();
+    if (my_proc == 0) {
+        read_check_agent(agent, f, fname);
+    } else {
+        // scan until a new geoid is encountered, marking the beginning of a block group
+        while (read_check_agent(agent, f, fname)) {
+            if (agent.p_id == -1) continue; // incomplete line was read
+            if (current_geoid == -1) current_geoid = agent.geoid;
+            if (current_geoid != agent.geoid) break;
+            start_pos = f.tellg();
+        }
+    }
+    // each process will read a unique, non-overlapping, set of agents
+    vector<UrbanPopAgent> agents;
+    // used for counting up the number of unique census block groups
+    unordered_set<int64_t> unique_geoids;
+    // used for counting up the number of unique households and assigning a unique number to each
+    // note that the h_id is only unique to a block group, and not across block groups. Hence the hash table uses the geoid, h_id
+    unordered_map<GeoidHH, int> households;
+    // now read in agents starting from the new block group
+    // amrex::AllPrint() << "proc " << my_proc << " starting at " << start_pos << " my_offset " << my_offset << "\n";
+    auto stop_pos = f.tellg();
+    while (true) {
+        // the agent is already set to the first one for this process, so we first add it
         agents.push_back(agent);
         unique_geoids.insert(agent.geoid);
         auto elem = households.find({agent.geoid, agent.h_id});
         if (elem == households.end()) households.insert({GeoidHH(agent.geoid, agent.h_id), num_households++});
+        current_geoid = agent.geoid;
+        // now read the next agent
+        stop_pos = f.tellg();
+        if (!read_check_agent(agent, f, fname)) break;
+        // only keep reading until a new geoid is encountered
+        if ((my_proc < num_procs - 1) && (stop_pos > my_offset + chunk) && (current_geoid != agent.geoid)) break;
     }
 
-    num_agents = agents.size();
+    my_num_agents = agents.size();
+    // amrex::AllPrint() << "proc " << my_proc << ": last agent " << agents[num_agents - 1].p_id << ","
+    //                  << agents[num_agents - 1].h_id << "," << agents[num_agents - 1].geoid << "\n";
+    // amrex::AllPrint() << "proc " << my_proc << " stopping at " << stop_pos << " my_offset+chunk " << (my_offset + chunk) << "\n";
 
-    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(num_agents > 0, "Number of agents must be positive");
+    AMREX_ALWAYS_ASSERT_WITH_MESSAGE(my_num_agents > 0, "Number of agents must be positive");
 
-    h_id.resize(num_agents);
-    geoid.resize(num_agents);
-    pr_age.resize(num_agents);
-    pr_emp_stat.resize(num_agents);
-    pr_commute.resize(num_agents);
+    amrex::ParallelContext::BarrierAll();
+
+    h_id.resize(my_num_agents);
+    geoid.resize(my_num_agents);
+    pr_age.resize(my_num_agents);
+    pr_emp_stat.resize(my_num_agents);
+    pr_commute.resize(my_num_agents);
 
     int num_employed = 0;
     int num_military = 0;
-    for (int i = 0; i < num_agents; i++) {
+    for (int i = 0; i < my_num_agents; i++) {
         UrbanPopAgent &agent = agents[i];
         geoid[i] = agent.geoid;
         h_id[i] = households[GeoidHH(agent.geoid, agent.h_id)];
@@ -101,13 +165,22 @@ void UrbanPopData::InitFromFile (const std::string& fname)
         pr_commute[i] = agent.pr_commute;
     }
 
-    num_block_groups = unique_geoids.size();
+    my_num_block_groups = unique_geoids.size();
+    auto [all_num_block_groups, load_balance_block_groups] = get_all_load_balance(my_num_block_groups);
+    this->all_num_block_groups = all_num_block_groups;
+    auto [all_num_agents, load_balance_agents] = get_all_load_balance(my_num_agents);
+    this->all_num_agents = all_num_agents;
+    ParallelDescriptor::ReduceIntSum(num_employed);
+    ParallelDescriptor::ReduceIntSum(num_military);
+    ParallelDescriptor::ReduceIntSum(num_households);
 
-    amrex::Print() << "Total population " << num_agents << "\n";
-    amrex::Print() << "Total employed " << num_employed << "\n";
-    amrex::Print() << "Total military " << num_military << "\n";
-    amrex::Print() << "Number of households: " << num_households << "\n";
-    amrex::Print() << "Number of communities: " << num_block_groups << "\n";
+    amrex::Print() << "Population:  " << all_num_agents << " (balance "
+                                      << std::fixed << std::setprecision(3) << load_balance_agents << ")\n";
+    amrex::Print() << "Employed:    " << num_employed << "\n";
+    amrex::Print() << "Military:    " << num_military << "\n";
+    amrex::Print() << "Households:  " << num_households << "\n";
+    amrex::Print() << "Communities: " << all_num_block_groups << " (balance "
+                                      << std::fixed << std::setprecision(3) << load_balance_block_groups << ")\n";
 
     CopyDataToDevice();
     amrex::Gpu::streamSynchronize();
@@ -115,8 +188,8 @@ void UrbanPopData::InitFromFile (const std::string& fname)
 
 /*! \brief Prints UrbanPop data to screen */
 void UrbanPopData::Print () const {
-    amrex::Print() << num_agents << "\n";
-    for (int i = 0; i < num_agents; ++i) {
+    amrex::Print() << my_num_agents << "\n";
+    for (int i = 0; i < my_num_agents; ++i) {
         amrex::Print() << i << " " << geoid[i] << " " << h_id[i] << " " << pr_age[i] << " " << pr_emp_stat[i] << " "
                        << pr_commute[i] << "\n";
     }

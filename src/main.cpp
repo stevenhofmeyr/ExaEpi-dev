@@ -106,7 +106,8 @@ void runAgent ()
             break;
         case ICType::UrbanPop:
             urban_pop.InitFromFile(params.urbanpop_filename);
-            Ncommunities = urban_pop.num_block_groups;
+            // Need more grid space to ensure that each process has sufficient locations for the communities it has loaded
+            Ncommunities = urban_pop.all_num_block_groups * 2.0;
             break;
     }
 
@@ -116,6 +117,10 @@ void runAgent ()
     }
 
     Geometry geom = ExaEpi::Utils::get_geometry(Ncommunities, params);
+    auto geom_x = geom.Domain().length(0);
+    amrex::Print() << "geom x " << geom_x << "\n";
+    params.max_grid_size = geom_x / ParallelDescriptor::NProcs();
+    amrex::Print() << "max grid size " << params.max_grid_size << "\n";
 
     BoxArray ba;
     DistributionMapping dm;
@@ -123,6 +128,7 @@ void runAgent ()
     ba.maxSize(params.max_grid_size);
     dm.define(ba);
 
+    // each grid point in a box corresponds to a community
     amrex::Print() << "Base domain is: " << geom.Domain() << "\n";
     amrex::Print() << "Max grid size is: " << params.max_grid_size << "\n";
     amrex::Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
@@ -179,9 +185,15 @@ void runAgent ()
                 }
                 break;
             case ICType::UrbanPop:
-                pc.initAgentsUrbanPop();
+                pc.initAgentsUrbanPop(urban_pop);
                 break;
         }
+    }
+
+    pc.writeAgentsFile("agents.csv");
+    if (params.ic_type == ICType::UrbanPop) {
+        params.nsteps = 0;
+        //amrex::Abort("UrbanPop not yet implemented\n");
     }
 
     int  step_of_peak = 0;

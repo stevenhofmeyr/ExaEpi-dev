@@ -19,6 +19,7 @@
 #include "DemographicData.H"
 #include "DiseaseParm.H"
 #include "InteractionModelLibrary.H"
+#include "UrbanPopData.H"
 
 /*! \brief Assigns school by taking a random number between 0 and 100, and using
  *  default distribution to choose elementary/middle/high school. */
@@ -153,7 +154,7 @@ public:
                            amrex::iMultiFab& comm_mf,
                            DemographicData& demo);
 
-    void initAgentsUrbanPop ();
+    void initAgentsUrbanPop (UrbanPopData &urban_pop);
 
     void morningCommute(amrex::MultiFab&);
 
@@ -213,6 +214,9 @@ public:
     inline const DiseaseParm* getDiseaseParameters_d () const {
         return d_parm;
     }
+
+
+    void writeAgentsFile(const std::string &fname);
 
 protected:
 

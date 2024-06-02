@@ -26,8 +26,12 @@ struct UrbanPopData
 
     void CopyDataToDevice ();
 
-    int num_block_groups;  // each block group is a community of around 1500 people
-    int num_agents;        // number of agents
+    // my_ = for this process
+    int my_num_block_groups;  // each block group is a community of around 1500 people
+    int my_num_agents;        // number of people
+    // across all processes
+    int all_num_block_groups;
+    int all_num_agents;
 
     // the vectors have one entry per agent
     amrex::Vector<int64_t> geoid;    // the census block group ID - determines the community number

@@ -74,7 +74,12 @@ struct UrbanPopAgent {
 
         string buf;
         if (!getline(f, buf)) return false;
-        auto tokens = split(buf, ',');
+        std::vector<string> tokens = split(buf, ',');
+        if (tokens.size() < 29) {
+            p_id = -1;
+            return true;
+        }
+        if (tokens.size() == 29) tokens.push_back("");
 
         p_id = stoi(tokens[0]);
         h_id = stoi(tokens[1]);
