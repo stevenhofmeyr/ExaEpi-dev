@@ -97,6 +97,7 @@ Geometry ExaEpi::Utils::get_geometry (int Ncommunities,      /*!< from demograph
         is_per[i] = true;
     }
 
+    /*
     RealBox real_box_latlong;
     // latitude
     real_box_latlong.setLo(0, 31.792004);
@@ -114,17 +115,6 @@ Geometry ExaEpi::Utils::get_geometry (int Ncommunities,      /*!< from demograph
 
     amrex::Print() << "latlong base domain: " << geom_latlong.Domain()
                    << " cell size array " << geom_latlong.CellSizeArray()[0] << ", "  << geom_latlong.CellSizeArray()[1] << "\n";
-
-    /*BoxArray ba;
-    DistributionMapping dm;
-    ba.define(geom.Domain());
-    ba.maxSize(params.max_grid_size);
-    dm.define(ba);
-
-    // each grid point in a box corresponds to a community
-    amrex::Print() << "Base domain is: " << geom.Domain() << "\n";
-    amrex::Print() << "Max grid size is: " << params.max_grid_size << "\n";
-    amrex::Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
     */
 
     RealBox real_box;

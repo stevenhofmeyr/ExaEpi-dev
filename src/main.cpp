@@ -107,7 +107,7 @@ void runAgent ()
         case ICType::UrbanPop:
             urban_pop.InitFromFile(params.urbanpop_filename);
             // Need more grid space to ensure that each process has sufficient locations for the communities it has loaded
-            Ncommunities = urban_pop.all_num_block_groups * 2.0;
+            Ncommunities = urban_pop.all_num_block_groups * 1.5;
             break;
     }
 
@@ -118,9 +118,7 @@ void runAgent ()
 
     Geometry geom = ExaEpi::Utils::get_geometry(Ncommunities, params);
     auto geom_x = geom.Domain().length(0);
-    amrex::Print() << "geom x " << geom_x << "\n";
     params.max_grid_size = geom_x / ParallelDescriptor::NProcs();
-    amrex::Print() << "max grid size " << params.max_grid_size << "\n";
 
     BoxArray ba;
     DistributionMapping dm;
@@ -146,7 +144,10 @@ void runAgent ()
             amrex::FileOpenFailed(output_filename);
         }
 
-        File << std::setw(5) << "Day" << std::setw(10) << "Never" << std::setw(10) << "Infected" << std::setw(10) << "Immune" << std::setw(10) << "Deaths" << std::setw(15) << "Hospitalized" << std::setw(15) << "Ventilated" << std::setw(10) << "ICU" << std::setw(10) << "Exposed" << std::setw(15) << "Asymptomatic" << std::setw(15) << "Presymptomatic" << std::setw(15) << "Symptomatic\n";
+        File << std::setw(5) << "Day" << std::setw(10) << "Never" << std::setw(10) << "Infected" << std::setw(10) << "Immune"
+             << std::setw(10) << "Deaths" << std::setw(15) << "Hospitalized" << std::setw(15) << "Ventilated" << std::setw(10)
+             << "ICU" << std::setw(10) << "Exposed" << std::setw(15) << "Asymptomatic" << std::setw(15) << "Presymptomatic"
+             << std::setw(15) << "Symptomatic\n";
 
         File.flush();
 

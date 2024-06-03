@@ -6,6 +6,9 @@
 
 using namespace amrex;
 
+using std::string;
+using std::to_string;
+
 namespace {
 
     /*! \brief Shuffle the elements of a given vector */
@@ -620,21 +623,48 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
         int tot_np = 0;
         int num_boxes = 0;
         int tot_locs = 0;
+        int my_proc = ParallelDescriptor::MyProc();
 
         // FIXME: how do you get the number of boxes for this process directly?
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) num_boxes++;
-        int num_particles_per_box = urban_pop.my_num_agents / num_boxes;
-        amrex::AllPrint() << ParallelDescriptor::MyProc() << ": num boxes " << num_boxes
-                          << " particles per box " << num_particles_per_box << "\n";
+        int num_locs = 0;
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            num_boxes++;
+            auto bx = mfi.tilebox();
+            num_locs += bx.length()[0] * bx.length()[1];
+        }
+        if (urban_pop.my_num_block_groups > num_locs)
+            amrex::Abort("ERROR: Process " + to_string(my_proc) + " has too few locations (" + to_string(num_locs) +
+                         ") for the number of block groups in the data (" + to_string(urban_pop.my_num_block_groups) + "\n");
+        // current index into urban pop data
+        int urban_pop_agent_i = 0;
+        int64_t geoid = -1;
+        int tot_num_block_groups = 0;
+        int groups_per_box = urban_pop.my_num_block_groups / num_boxes;
         int box_i = 0;
         for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
             auto& agents_tile = GetParticles(0)[std::make_pair(gid, tid)];
-            if (box_i == num_boxes - 1) agents_tile.resize(urban_pop.my_num_agents - num_particles_per_box * box_i);
-            else agents_tile.resize(num_particles_per_box);
+            auto bx = mfi.tilebox();
+            int max_block_groups = std::min(bx.length(0) * bx.length(1), groups_per_box);
+            if (box_i == num_boxes - 1) max_block_groups = bx.length(0) * bx.length(1);
+            int num_block_groups = 0;
+            int np = 0;
+            int start_agent_i = urban_pop_agent_i;
+            for (; urban_pop_agent_i < urban_pop.my_num_agents; urban_pop_agent_i++) {
+                auto new_geoid = urban_pop.geoid[urban_pop_agent_i];
+                if (geoid != new_geoid) {
+                    num_block_groups++;
+                    geoid = new_geoid;
+                }
+                if (num_block_groups == max_block_groups) break;
+                np++;
+            }
+            tot_num_block_groups += num_block_groups;
+            amrex::Print() << "box " << box_i << " " << bx << " with " << num_block_groups << " block groups and "
+                           << np << " particles\n";
+            agents_tile.resize(np);
             auto& ptile = plev[std::make_pair(gid, tid)];
-            const auto np = ptile.numParticles();
             tot_np += np;
             //auto &agents = ptile.GetArrayOfStructs();
             auto& soa = ptile.GetStructOfArrays();
@@ -655,17 +685,12 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
                 work_j_ptr[i] = 0;
             }
             box_i++;
-            auto bx = mfi.tilebox();
-            int num_locs = 0;
-            amrex::ParallelFor(bx, [=, &num_locs] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
-                num_locs++;
-            });
-            amrex::AllPrint() << ParallelDescriptor::MyProc() << ": box " << bx << " num locs " << num_locs << "\n";
-            tot_locs += num_locs;
         }
-        amrex::AllPrint() << "Process " << ParallelDescriptor::MyProc() << " has " << plev.size() << " boxes with a total of "
-                          << tot_np << " particles and " << tot_locs << " locations for "
-                          << urban_pop.my_num_block_groups << " block groups\n";
+        amrex::ParallelContext::BarrierAll();
+        amrex::AllPrint() << "Process " << my_proc << " has " << plev.size() << " boxes with a total of "
+                          << tot_np << " particles and " << num_locs << " locations for "
+                          << urban_pop.my_num_block_groups << " block groups and " << urban_pop.my_num_agents
+                          << " agents and used " << tot_num_block_groups << " locations\n";
     }
 }
 
