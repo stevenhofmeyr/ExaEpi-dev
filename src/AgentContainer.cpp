@@ -646,39 +646,84 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
             int tid = mfi.LocalTileIndex();
             auto& agents_tile = GetParticles(0)[std::make_pair(gid, tid)];
             auto bx = mfi.tilebox();
-            int max_block_groups = std::min(bx.length(0) * bx.length(1), groups_per_box);
-            if (box_i == num_boxes - 1) max_block_groups = bx.length(0) * bx.length(1);
+            int xlen = bx.length(0);
+            int ylen = bx.length(1);
+            int max_block_groups = std::min(xlen * ylen, groups_per_box);
+            if (box_i == num_boxes - 1) max_block_groups = xlen * ylen;
             int num_block_groups = 0;
             int np = 0;
             int start_agent_i = urban_pop_agent_i;
+            std::unordered_map<int64_t, IntVect> geoid_to_loc_map;
+            int x = 0;
+            int y = 0;
+            // determine how many block groups will fit in this box
             for (; urban_pop_agent_i < urban_pop.my_num_agents; urban_pop_agent_i++) {
                 auto new_geoid = urban_pop.geoid[urban_pop_agent_i];
                 if (geoid != new_geoid) {
                     num_block_groups++;
                     geoid = new_geoid;
+                    //amrex::Print() << "proc " << my_proc << " inserting geoid " << geoid << " into map for box " << box_i
+                    //               << " in position " << x << ", " << y << "\n";
+                    geoid_to_loc_map.insert({geoid, IntVect(AMREX_D_DECL(x, y, 0))});
+                    x++;
+                    if (x == xlen) {
+                        x = 0;
+                        y++;
+                        if (y > ylen) amrex::Abort("Box index out of range\n");
+                    }
                 }
-                if (num_block_groups == max_block_groups) break;
+                if (num_block_groups > max_block_groups) break;
                 np++;
             }
+            AMREX_ALWAYS_ASSERT(num_block_groups == geoid_to_loc_map.size());
             tot_num_block_groups += num_block_groups;
-            amrex::Print() << "box " << box_i << " " << bx << " with " << num_block_groups << " block groups and "
-                           << np << " particles\n";
             agents_tile.resize(np);
             auto& ptile = plev[std::make_pair(gid, tid)];
             tot_np += np;
-            //auto &agents = ptile.GetArrayOfStructs();
-            auto& soa = ptile.GetStructOfArrays();
+            // initialize the agents within this box
+            auto dx = ParticleGeom(0).CellSizeArray();
+            auto &aos = ptile.GetArrayOfStructs();
+            auto &soa = ptile.GetStructOfArrays();
             auto status_ptr = soa.GetIntData(IntIdx::status).data();
+            auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
+            auto timer_ptr = soa.GetRealData(RealIdx::treatment_timer).data();
             auto family_ptr = soa.GetIntData(IntIdx::family).data();
             auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+            int pid = 0;
             for (int i = 0; i < np; i++) {
+                auto& agent = aos[i];
+                auto elem = geoid_to_loc_map.find(urban_pop.geoid[i]);
+                int x = 0;
+                int y = 0;
+                if (elem != geoid_to_loc_map.end()) {
+                    x = elem->second[0];
+                    y = elem->second[1];
+                } else if (my_proc == 0) {
+                    //amrex::Abort("could not find geoid " + to_string(urban_pop.geoid[i]) + " in map, from agent " + to_string(i) +
+                    //             " in box " + to_string(box_i) + "\n");
+                }
+                agent.pos(0) = (x + 0.5_rt) * dx[0];
+                agent.pos(1) = (y + 0.5_rt) * dx[1];
+                agent.id()  = pid + i;
+                agent.cpu() = my_proc;
+
                 status_ptr[i] = 0;
+                counter_ptr[i] = 0.0_rt;
+                timer_ptr[i] = 0.0_rt;
+
+                auto age = urban_pop.pr_age[start_agent_i + i];
+                // Age group (under 5, 5-17, 18-29, 30-64, 65+)
+                if (age < 5) age_group_ptr[i] = 0;
+                else if (age < 17) age_group_ptr[i] = 1;
+                else if (age < 29) age_group_ptr[i] = 2;
+                else if (age < 64) age_group_ptr[i] = 3;
+                else age_group_ptr[i] = 4;
+
                 family_ptr[i] = i;
-                age_group_ptr[i] = 0;
                 home_i_ptr[i] = 0;
                 home_j_ptr[i] = 0;
                 work_i_ptr[i] = 0;
@@ -688,9 +733,10 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
         }
         amrex::ParallelContext::BarrierAll();
         amrex::AllPrint() << "Process " << my_proc << " has " << plev.size() << " boxes with a total of "
-                          << tot_np << " particles and " << num_locs << " locations for "
-                          << urban_pop.my_num_block_groups << " block groups and " << urban_pop.my_num_agents
-                          << " agents and used " << tot_num_block_groups << " locations\n";
+                          << tot_np << " particles and max " << num_locs << " locations for "
+                          << tot_num_block_groups << " block groups and " << urban_pop.my_num_agents << " population\n";
+        AMREX_ALWAYS_ASSERT(urban_pop.my_num_block_groups == tot_num_block_groups);
+        AMREX_ALWAYS_ASSERT(tot_np == urban_pop.my_num_agents);
     }
 }
 

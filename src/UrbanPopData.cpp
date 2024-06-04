@@ -68,18 +68,6 @@ static std::pair<int, double> get_all_load_balance(long num) {
 void UrbanPopData::InitFromFile (const string& fname)
 {
     BL_PROFILE("UrbanPopData::InitFromFile");
-
-    auto read_check_agent = [](UrbanPopAgent &agent, ifstream &f, const string &fname) {
-        try {
-            if (!agent.read_csv(f)) return false;
-        } catch (const std::exception &ex) {
-            ostringstream os;
-            os << "Error reading file " << fname << ": " << ex.what() << "\n";
-            amrex::Abort(os.str());
-        }
-        return true;
-    };
-
     auto my_proc = ParallelDescriptor::MyProc();
     auto num_procs = ParallelDescriptor::NProcs();
     // Each rank reads a fraction of the file.
@@ -102,11 +90,11 @@ void UrbanPopData::InitFromFile (const string& fname)
     UrbanPopAgent agent;
     auto start_pos = f.tellg();
     if (my_proc == 0) {
-        read_check_agent(agent, f, fname);
+        agent.read_csv(f);
     } else {
         // scan until a new geoid is encountered, marking the beginning of a block group
-        while (read_check_agent(agent, f, fname)) {
-            if (agent.p_id == -1) continue; // incomplete line was read
+        while (agent.read_csv(f)) {
+            if (agent.p_id == -1) continue;
             if (current_geoid == -1) current_geoid = agent.geoid;
             if (current_geoid != agent.geoid) break;
             start_pos = f.tellg();
@@ -131,7 +119,7 @@ void UrbanPopData::InitFromFile (const string& fname)
         current_geoid = agent.geoid;
         // now read the next agent
         stop_pos = f.tellg();
-        if (!read_check_agent(agent, f, fname)) break;
+        if (!agent.read_csv(f)) break;
         // only keep reading until a new geoid is encountered
         if ((my_proc < num_procs - 1) && (stop_pos > my_offset + chunk) && (current_geoid != agent.geoid)) break;
     }

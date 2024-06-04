@@ -14,6 +14,7 @@ using float32_t = float;
 
 const size_t PUMS_ID_LEN = 13;
 const size_t NAICS_LEN = 7;
+const size_t NUM_COLS = 30;
 
 static string hh_type_descriptions[] = {"hh", "gq"};
 static string hh_living_arrangement_descriptions[] = {"married", "male_no_spouse", "female_no_spouse", "alone", "not_alone"};
@@ -74,46 +75,53 @@ struct UrbanPopAgent {
 
         string buf;
         if (!getline(f, buf)) return false;
-        std::vector<string> tokens = split(buf, ',');
-        if (tokens.size() < 29) {
+        if (buf[0] != '*') {
             p_id = -1;
             return true;
         }
-        if (tokens.size() == 29) tokens.push_back("");
+        try {
+            std::vector<string> tokens = split(buf.substr(2), ',');
+            if (tokens.size() != NUM_COLS)
+                throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) + 
+                                         " got " + std::to_string(tokens.size()));
+            p_id = stoi(tokens[0]);
+            h_id = stoi(tokens[1]);
+            geoid = stol(tokens[2]);
+            latitude = stof(tokens[3]);
+            longitude = stof(tokens[4]);
+            hh_income = stoi(tokens[5]);
+            hh_size = stoi(tokens[6]);
+            hh_type = stoi(tokens[7]);
+            hh_living_arrangement = stoi(tokens[8]);
+            hh_age = stoi(tokens[9]);
+            hh_has_kids = stoi(tokens[10]);
+            hh_nb_wrks = stoi(tokens[11]);
+            hh_nb_non_wrks = stoi(tokens[12]);
+            hh_nb_adult_wrks = stoi(tokens[13]);
+            hh_nb_adult_non_wrks = stoi(tokens[14]);
+            hh_dwg = stoi(tokens[15]);
+            hh_tenure = stoi(tokens[16]);
+            hh_vehicles = stoi(tokens[17]);
+            pr_age = stoi(tokens[18]);
+            pr_sex = stoi(tokens[19]);
+            pr_race = stoi(tokens[20]);
+            pr_hsplat = stoi(tokens[21]);
+            pr_ipr = stoi(tokens[22]);
+            pr_emp_stat = stoi(tokens[23]);
+            pr_travel = stoi(tokens[24]);
+            pr_veh_occ = stoi(tokens[25]);
+            pr_commute = stoi(tokens[26]);
+            pr_grade = stoi(tokens[27]);
+            AMREX_ALWAYS_ASSERT(!tokens[28].empty());
+            strncpy(pums_id, tokens[28].c_str(), PUMS_ID_LEN);
+            AMREX_ALWAYS_ASSERT(!tokens[29].empty());
+            strncpy(pr_naics, tokens[29].c_str(), NAICS_LEN);
 
-        p_id = stoi(tokens[0]);
-        h_id = stoi(tokens[1]);
-        geoid = stol(tokens[2]);
-        latitude = stof(tokens[3]);
-        longitude = stof(tokens[4]);
-        hh_income = stoi(tokens[5]);
-        hh_size = stoi(tokens[6]);
-        hh_type = stoi(tokens[7]);
-        hh_living_arrangement = stoi(tokens[8]);
-        hh_age = stoi(tokens[9]);
-        hh_has_kids = stoi(tokens[10]);
-        hh_nb_wrks = stoi(tokens[11]);
-        hh_nb_non_wrks = stoi(tokens[12]);
-        hh_nb_adult_wrks = stoi(tokens[13]);
-        hh_nb_adult_non_wrks = stoi(tokens[14]);
-        hh_dwg = stoi(tokens[15]);
-        hh_tenure = stoi(tokens[16]);
-        hh_vehicles = stoi(tokens[17]);
-        pr_age = stoi(tokens[18]);
-        pr_sex = stoi(tokens[19]);
-        pr_race = stoi(tokens[20]);
-        pr_hsplat = stoi(tokens[21]);
-        pr_ipr = stoi(tokens[22]);
-        pr_emp_stat = stoi(tokens[23]);
-        pr_travel = stoi(tokens[24]);
-        pr_veh_occ = stoi(tokens[25]);
-        pr_commute = stoi(tokens[26]);
-        pr_grade = stoi(tokens[27]);
-        if (!tokens[28].empty()) strncpy(pums_id, tokens[28].c_str(), PUMS_ID_LEN);
-        else memset(pums_id, 0, PUMS_ID_LEN);
-        if (!tokens[29].empty()) strncpy(pr_naics, tokens[29].c_str(), NAICS_LEN);
-        else memset(pr_naics, 0, NAICS_LEN);
-
+        } catch (const std::exception &ex) {
+            std::ostringstream os;
+            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+            amrex::Abort(os.str());
+        }
         return true;
     }
 
