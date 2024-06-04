@@ -56,7 +56,6 @@ categ_types = {
 
 def print_header(df):
     string_fields = {"pums_id": "PUMS_ID_LEN", "pr_naics": "NAICS_LEN"}
-
     hdr_fname = "UrbanPopAgentStruct.H"
     print("Writing C++ header file at", hdr_fname)
 
@@ -75,7 +74,8 @@ def print_header(df):
           "using std::string;\n" \
           "using float32_t = float;\n\n" \
           "const size_t PUMS_ID_LEN = " + str(PUMS_ID_LEN) + ";\n" \
-          "const size_t NAICS_LEN = " + str(NAICS_LEN) + ";\n\n"
+          "const size_t NAICS_LEN = " + str(NAICS_LEN) + ";\n" \
+          "const size_t NUM_COLS = " + str(len(df.columns)) + ";\n\n"
 
     # print out string arrays with category names
     for field_type in df:
@@ -103,27 +103,33 @@ def print_header(df):
 
         string buf;
         if (!getline(f, buf)) return false;
-        std::vector<string> tokens = split(buf, ',');\n"""
-    num_cols = len(df.columns)
-    hdr += "        if (tokens.size() < " + str(num_cols - 1) + ") {\n" \
-           "            p_id = -1;\n" \
-           "            return true;\n" \
-           "        }\n" \
-           "        if (tokens.size() == " + str(num_cols - 1) + ") tokens.push_back(\"\");\n\n"
+        if (buf[0] != '*') {
+            p_id = -1;
+            return true;
+        }
+        try {
+            std::vector<string> tokens = split(buf.substr(2), ',');
+            if (tokens.size() != NUM_COLS)
+                throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NUM_COLS) + 
+                                         " got " + std::to_string(tokens.size()));\n"""
 
     for i, col in enumerate(df.columns):
         if col in string_fields:
-            hdr += "        if (!tokens[" + str(i) + "].empty()) " \
-                   "strncpy(" + col + ", tokens[" + str(i) + "].c_str(), " + string_fields[col] + ");\n" \
-                   "        else memset(" + col + ", 0, " + string_fields[col] + ");\n"
+            hdr += "            AMREX_ALWAYS_ASSERT(!tokens[" + str(i) + "].empty());\n" \
+                   "            strncpy(" + col + ", tokens[" + str(i) + "].c_str(), " + string_fields[col] + ");\n" 
         else:
             if df.dtypes.iloc[i] == "float32":
-                hdr += "        " + col + " = stof(tokens[" + str(i) + "]);\n"
+                hdr += "            " + col + " = stof(tokens[" + str(i) + "]);\n"
             elif df.dtypes.iloc[i] == "int64":
-                hdr += "        " + col + " = stol(tokens[" + str(i) + "]);\n"
+                hdr += "            " + col + " = stol(tokens[" + str(i) + "]);\n"
             else:
-                hdr += "        " + col + " = stoi(tokens[" + str(i) + "]);\n"
+                hdr += "            " + col + " = stoi(tokens[" + str(i) + "]);\n"
     hdr += """
+        } catch (const std::exception &ex) {
+            std::ostringstream os;
+            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
+            amrex::Abort(os.str());
+        }
         return true;
     }\n"""
 
@@ -180,7 +186,10 @@ def process_feather_files(fnames, out_fname, geoid_locs_map):
     # move char arrays to end of struct
     df.insert(len(df.columns) - 1, "pums_id", df.pop("pums_id"))
     df.insert(len(df.columns) - 1, "pr_naics", df.pop("pr_naics"))
-
+    # ensure the NAICS fields don't contain an empty string, which can muddle parsing down the line
+    #df['pr_naics'] = df['pr_naics'].replace(["^\s*$"], 'NA', regex=True)
+    df['pr_naics'] = df['pr_naics'].replace([''], 'NA', regex=True)
+    
     print("Categorical types")
     for field_type in df:
         if field_type in categ_types:
@@ -234,7 +243,10 @@ def process_feather_files(fnames, out_fname, geoid_locs_map):
     print("Sorted in %.3f s" % (time.time() - t))
     print("Writing CSV text data to", out_fname)
     t = time.time()
-    df.to_csv(out_fname, index=False)
+    num_rows = len(df.index)
+    # start with a distinct marker so that the file can be read in parallel more easily
+    df.index = ['*'] * num_rows
+    df.to_csv(out_fname, index=True)
     print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
 
 
