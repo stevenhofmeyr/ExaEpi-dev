@@ -118,6 +118,7 @@ void runAgent ()
 
     Geometry geom = ExaEpi::Utils::get_geometry(Ncommunities, params);
     auto geom_x = geom.Domain().length(0);
+    if (geom_x < ParallelDescriptor::NProcs()) geom_x = ParallelDescriptor::NProcs();
     params.max_grid_size = geom_x / ParallelDescriptor::NProcs();
     amrex::Print() << "geom x " << geom_x << " max grid size " << params.max_grid_size << "\n";
 

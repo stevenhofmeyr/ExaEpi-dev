@@ -632,14 +632,12 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
             auto bx = mfi.tilebox();
             num_locs += bx.length()[0] * bx.length()[1];
         }
-        if (urban_pop.my_num_block_groups > num_locs)
-            amrex::Abort("ERROR: Process " + to_string(my_proc) + " has too few locations (" + to_string(num_locs) +
-                         ") for the number of block groups in the data (" + to_string(urban_pop.my_num_block_groups) + "\n");
+        AMREX_ALWAYS_ASSERT(urban_pop.my_num_block_groups <= num_locs);
         // current index into urban pop data
         int urban_pop_agent_i = 0;
         int64_t geoid = -1;
         int tot_num_block_groups = 0;
-        int groups_per_box = urban_pop.my_num_block_groups / num_boxes;
+        int groups_per_box = std::max(urban_pop.my_num_block_groups / num_boxes, urban_pop.my_num_block_groups);
         int box_i = 0;
         for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
@@ -662,14 +660,12 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
                 if (geoid != new_geoid) {
                     num_block_groups++;
                     geoid = new_geoid;
-                    //amrex::Print() << "proc " << my_proc << " inserting geoid " << geoid << " into map for box " << box_i
-                    //               << " in position " << x << ", " << y << "\n";
                     geoid_to_loc_map.insert({geoid, IntVect(AMREX_D_DECL(x, y, 0))});
                     x++;
                     if (x == xlen) {
                         x = 0;
                         y++;
-                        if (y > ylen) amrex::Abort("Box index out of range\n");
+                        AMREX_ALWAYS_ASSERT(y <= ylen);
                     }
                 }
                 if (num_block_groups > max_block_groups) break;
@@ -695,27 +691,30 @@ void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
             int pid = 0;
             for (int i = 0; i < np; i++) {
+                int upi = start_agent_i + i;
                 auto& agent = aos[i];
-                auto elem = geoid_to_loc_map.find(urban_pop.geoid[i]);
-                int x = 0;
-                int y = 0;
+                auto geoid = urban_pop.geoid[upi];
+                auto elem = geoid_to_loc_map.find(geoid);
+                x = 0;
+                y = 0;
                 if (elem != geoid_to_loc_map.end()) {
                     x = elem->second[0];
                     y = elem->second[1];
-                } else if (my_proc == 0) {
-                    //amrex::Abort("could not find geoid " + to_string(urban_pop.geoid[i]) + " in map, from agent " + to_string(i) +
-                    //             " in box " + to_string(box_i) + "\n");
+                } else {
+                    amrex::Abort("proc " + to_string(my_proc) + " could not find geoid " + to_string(geoid) +
+                                 " in map, from agent " + to_string(upi) + " pos " + to_string(i) + " in box " +
+                                 to_string(box_i) + "\n");
                 }
                 agent.pos(0) = (x + 0.5_rt) * dx[0];
                 agent.pos(1) = (y + 0.5_rt) * dx[1];
-                agent.id()  = pid + i;
+                agent.id()  = upi;
                 agent.cpu() = my_proc;
 
                 status_ptr[i] = 0;
                 counter_ptr[i] = 0.0_rt;
                 timer_ptr[i] = 0.0_rt;
 
-                auto age = urban_pop.pr_age[start_agent_i + i];
+                auto age = urban_pop.pr_age[upi];
                 // Age group (under 5, 5-17, 18-29, 30-64, 65+)
                 if (age < 5) age_group_ptr[i] = 0;
                 else if (age < 17) age_group_ptr[i] = 1;
