@@ -110,6 +110,7 @@ void runAgent ()
             Ncommunities = urban_pop.all_num_block_groups * 2.0;
             break;
     }
+    if (params.ic_type == ICType::UrbanPop) return;
 
     CaseData cases;
     if (params.ic_type == ICType::Census && params.initial_case_type == "file") {
@@ -120,7 +121,6 @@ void runAgent ()
     auto geom_x = geom.Domain().length(0);
     if (geom_x < ParallelDescriptor::NProcs()) geom_x = ParallelDescriptor::NProcs();
     params.max_grid_size = geom_x / ParallelDescriptor::NProcs();
-    amrex::Print() << "geom x " << geom_x << " max grid size " << params.max_grid_size << "\n";
 
     BoxArray ba;
     DistributionMapping dm;

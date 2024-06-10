@@ -10,6 +10,10 @@
 #include <vector>
 #include <filesystem>
 
+#include <AMReX.H>
+#include <AMReX_iMultiFab.H>
+#include <AMReX_MultiFab.H>
+#include <AMReX_Particles.H>
 #include <AMReX_BLassert.H>
 #include <AMReX_BLProfiler.H>
 #include <AMReX_ParallelDescriptor.H>
@@ -18,6 +22,8 @@
 
 #include "UrbanPopData.H"
 #include "UrbanPopAgentStruct.H"
+// FIXME: this should not be included here
+#include "AgentContainer.H"
 
 using namespace amrex;
 
@@ -27,7 +33,133 @@ using std::vector;
 using std::unordered_map;
 using std::unordered_set;
 using std::ifstream;
+using std::istringstream;
 using std::ostringstream;
+
+using ParallelDescriptor::MyProc;
+using ParallelDescriptor::NProcs;
+
+
+static vector<UrbanPopBlockGroup> read_block_groups_file(const string &fname) {
+    // read in geoids file and broadcast
+    Vector<char> geoids_file_ptr;
+    ParallelDescriptor::ReadAndBcastFile(fname + ".geoids", geoids_file_ptr);
+    string geoids_file_ptr_string(geoids_file_ptr.dataPtr());
+    istringstream geoids_file_iss(geoids_file_ptr_string, istringstream::in);
+
+    vector<UrbanPopBlockGroup> block_groups;
+    UrbanPopBlockGroup block_group;
+    while (true) {
+        if (!block_group.read(geoids_file_iss)) break;
+        block_groups.push_back(block_group);
+    }
+    return block_groups;
+}
+
+static void construct_geom(const string &fname) {
+    auto block_groups = read_block_groups_file(fname);
+    float min_lat = 1000;
+    float min_long = 1000;
+    float max_lat = -1000;
+    float max_long = -1000;
+    for (auto &block_group : block_groups) {
+        max_lat = max(block_group.latitude, max_lat);
+        max_long = max(block_group.longitude, max_long);
+        min_lat = min(block_group.latitude, min_lat);
+        min_long = min(block_group.longitude, min_long);
+    }
+
+    // grid spacing is 1/10th minute of arc at the equator, which is about 0.12 regular miles
+    float gspacing = 0.1 / 60.0;
+    // add a margin
+    min_lat -= gspacing;
+    max_lat += gspacing;
+    min_long -= gspacing;
+    max_long += gspacing;
+
+    // the boundaries of the problem in real coordinates, i.e. latituted and longitude.
+    RealBox real_box_latlong({AMREX_D_DECL(min_lat, min_long, 0)}, {AMREX_D_DECL(max_lat, max_long, 0)});
+    // the number of grid points in a direction
+    int grid_x = (max_lat - min_lat) / gspacing - 1;
+    int grid_y = (max_long - min_long) / gspacing - 1;
+    // the grid that overlays the domain, with the grid size in x and y directions
+    Box base_domain_latlong(IntVect(AMREX_D_DECL(0, 0, 0)), IntVect(AMREX_D_DECL(grid_x, grid_y, 0)));
+    // lat/long is a spherical coordinate system
+    Geometry geom_latlong(base_domain_latlong, &real_box_latlong, CoordSys::SPHERICAL);
+    // actual spacing (!= gspacing)
+    float gspacing_x = geom_latlong.CellSizeArray()[0];
+    float gspacing_y = geom_latlong.CellSizeArray()[1];
+    Print() << "Geographic area: (" << min_lat << ", " << min_long << ") " << max_lat << ", " << max_long << ")\n";
+    Print() << "Base domain: " << geom_latlong.Domain() << "\n";
+    //Print() << "Geometry: " << geom_latlong << "\n";
+    Print() << "Actual grid spacing: " << gspacing_x << ", "  << gspacing_y << "\n";
+
+    // create a box array with a single box representing the domain
+    BoxArray ba_latlong(geom_latlong.Domain());
+    // split the box array by forcing the box size to be limited to a given number of grid points
+    ba_latlong.maxSize(0.25 * grid_x / NProcs());
+    Print() << "Number of boxes: " << ba_latlong.size() << "\n";
+    // distribute the boxes in the array across the processors
+    DistributionMapping dm_latlong;
+    // weights set according to population in each box
+    std::vector<Long> weights(ba_latlong.size(), 0);
+    // offset into main data file for this block group
+    std::vector<Long> file_offsets(ba_latlong.size(), 0);
+
+    for (auto &block_group : block_groups) {
+        // convert lat/long coords to grid coords
+        int x = (block_group.latitude - min_lat) / gspacing_x;
+        int y = (block_group.longitude - min_long) / gspacing_y;
+        int bi_loc = -1;
+        for (int bi = 0; bi < ba_latlong.size(); bi++) {
+            auto bx = ba_latlong[bi];
+            if (bx.contains(IntVect(x, y))) {
+                bi_loc = bi;
+                weights[bi] += block_group.population;
+                file_offsets[bi] += block_group.file_offset;
+                break;
+            }
+        }
+        if (bi_loc == -1) AllPrint() << MyProc() << ": WARNING: could not find box for " << x << "," << y << "\n";
+    }
+
+    //dm_latlong.SFCProcessorMap(ba_latlong, weights, NProcs());
+    //Print() << "ba_latlong " << ba_latlong << " dm_latlong " << dm_latlong << "\n";
+    dm_latlong.KnapSackProcessorMap(weights, NProcs());
+    //Print() << "ba_latlong " << ba_latlong << " dm_latlong " << dm_latlong << "\n";
+
+    // FIXME: put this in main.cpp somehow
+    AgentContainer agent_container(geom_latlong, dm_latlong, ba_latlong);
+
+    int num_tile_boxes = 0;
+    int tot_population = 0;
+    for (MFIter mfi = agent_container.MakeMFIter(0, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+    //for (MFIter mfi = agent_container.MakeMFIter(0); mfi.isValid(); ++mfi) {
+        auto bx = mfi.tilebox();
+        //auto bx = mfi.validbox();
+        // find box in box array
+        int bi_loc = -1;
+        for (int bi = 0; bi < ba_latlong.size(); bi++) {
+            //if (bx == ba_latlong[bi]) {
+            if (ba_latlong[bi].contains(bx)) {
+                bi_loc = bi;
+                break;
+            }
+        }
+        if (bi_loc == -1) {
+            AllPrint() << MyProc() << ": WARNING: could not find box for tile box " << num_tile_boxes << "\n";
+        } else {
+            tot_population += weights[bi_loc];
+            // for tiling - don't count multiple times
+            weights[bi_loc] = 0;
+        }
+        num_tile_boxes++;
+    }
+    AllPrint() << "<" << MyProc() << ">: " << num_tile_boxes << " tile boxes, " << tot_population << " population\n";
+    ParallelDescriptor::ReduceIntSum(tot_population);
+    amrex::ParallelContext::BarrierAll();
+    Print() << "Total population across all processors is " << tot_population << "\n";
+}
 
 
 struct GeoidHH {
@@ -55,9 +187,11 @@ static std::pair<int, double> get_all_load_balance(long num) {
     ParallelDescriptor::ReduceIntSum(all);
     int max_num = num;
     ParallelDescriptor::ReduceIntMax(max_num);
-    double load_balance = (double)all / (double)ParallelDescriptor::NProcs() / max_num;
+    double load_balance = (double)all / (double)NProcs() / max_num;
     return {all, load_balance};
 }
+
+
 
 /*! \brief Read in UrbanPop data from given file
 * Each process reads in a non-overlapping chunk of the file and uses that to populate the agent array. The reading starts at an
@@ -68,20 +202,21 @@ static std::pair<int, double> get_all_load_balance(long num) {
 void UrbanPopData::InitFromFile (const string& fname)
 {
     BL_PROFILE("UrbanPopData::InitFromFile");
-    auto my_proc = ParallelDescriptor::MyProc();
-    auto num_procs = ParallelDescriptor::NProcs();
+    construct_geom(fname);
+    return;
+
     // Each rank reads a fraction of the file.
     size_t fsize = std::filesystem::file_size(fname);
     amrex::Print() << "Size of " << fname << " is " << fsize << "\n";
-    size_t chunk = fsize / num_procs;
-    size_t my_offset = chunk * my_proc;
+    size_t chunk = fsize / NProcs();
+    size_t my_offset = chunk * MyProc();
 
 
     ifstream f(fname);
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     f.seekg(my_offset);
     string buf;
-    if (my_proc == 0) {
+    if (MyProc() == 0) {
         // the first line in the file contains the header, so skip it
         if (!getline(f, buf)) amrex::Abort("Could not read line of file " + fname + " at " + to_string(my_offset) + "\n");
     }
@@ -89,7 +224,7 @@ void UrbanPopData::InitFromFile (const string& fname)
     int64_t current_geoid = -1;
     UrbanPopAgent agent;
     auto start_pos = f.tellg();
-    if (my_proc == 0) {
+    if (MyProc() == 0) {
         agent.read_csv(f);
     } else {
         // scan until a new geoid is encountered, marking the beginning of a block group
@@ -108,7 +243,7 @@ void UrbanPopData::InitFromFile (const string& fname)
     // note that the h_id is only unique to a block group, and not across block groups. Hence the hash table uses the geoid, h_id
     unordered_map<GeoidHH, int> households;
     // now read in agents starting from the new block group
-    // amrex::AllPrint() << "proc " << my_proc << " starting at " << start_pos << " my_offset " << my_offset << "\n";
+    // amrex::AllPrint() << "proc " << MyProc() << " starting at " << start_pos << " my_offset " << my_offset << "\n";
     auto stop_pos = f.tellg();
     while (true) {
         // the agent is already set to the first one for this process, so we first add it
@@ -121,18 +256,19 @@ void UrbanPopData::InitFromFile (const string& fname)
         stop_pos = f.tellg();
         if (!agent.read_csv(f)) break;
         // only keep reading until a new geoid is encountered
-        if ((my_proc < num_procs - 1) && (stop_pos > my_offset + chunk) && (current_geoid != agent.geoid)) break;
+        if ((MyProc() < NProcs() - 1) && (stop_pos > my_offset + chunk) && (current_geoid != agent.geoid)) break;
     }
 
     my_num_agents = agents.size();
-    // amrex::AllPrint() << "proc " << my_proc << ": last agent " << agents[num_agents - 1].p_id << ","
+    // amrex::AllPrint() << "proc " << MyProc() << ": last agent " << agents[num_agents - 1].p_id << ","
     //                  << agents[num_agents - 1].h_id << "," << agents[num_agents - 1].geoid << "\n";
-    // amrex::AllPrint() << "proc " << my_proc << " stopping at " << stop_pos << " my_offset+chunk " << (my_offset + chunk) << "\n";
+    // amrex::AllPrint() << "proc " << MyProc() << " stopping at " << stop_pos << " my_offset+chunk " << (my_offset + chunk) << "\n";
 
     AMREX_ALWAYS_ASSERT_WITH_MESSAGE(my_num_agents > 0, "Number of agents must be positive");
 
     amrex::ParallelContext::BarrierAll();
 
+    p_id.resize(my_num_agents);
     h_id.resize(my_num_agents);
     geoid.resize(my_num_agents);
     pr_age.resize(my_num_agents);
@@ -144,6 +280,7 @@ void UrbanPopData::InitFromFile (const string& fname)
     for (int i = 0; i < my_num_agents; i++) {
         UrbanPopAgent &agent = agents[i];
         geoid[i] = agent.geoid;
+        p_id[i] = agent.p_id;
         h_id[i] = households[GeoidHH(agent.geoid, agent.h_id)];
         pr_age[i] = agent.pr_age;
         pr_emp_stat[i] = agent.pr_emp_stat;
