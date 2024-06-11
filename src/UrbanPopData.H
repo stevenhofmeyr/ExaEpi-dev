@@ -9,22 +9,44 @@
 
 #include <string>
 
-struct UrbanPopData
-{
-   /*! \brief Null constructor */
+namespace UrbanPop {
+
+struct Person {
+    int64_t geoid;    // the census block group ID - determines the community number
+    int p_id;         // the unique person/agent id
+    int h_id;         // the ID of the household this agent belongs to - this is the same as the family ID
+    int pr_age;       // age of this agent
+    int pr_emp_stat;  // whether employed or not
+    int pr_commute;   // commute distance
+
+    void set(int64_t geoid, int p_id, int h_id, int pr_age, int pr_emp_stat, int pr_commute);
+};
+
+struct BlockGroup {
+    int64_t geoid;
+    float latitude;
+    float longitude;
+    size_t file_offset;
+    int population;
+    int box_i;
+    int num_households;
+    int num_employed;
+    int num_military;
+    amrex::Vector<Person> people;
+
+    bool read(std::istringstream &iss);
+    bool read_people(std::ifstream &f);
+};
+
+struct UrbanPopData {
+    /*! \brief Null constructor */
     UrbanPopData () {}
 
-    void InitFromFile (const std::string& fname);
+    void construct_geom(const std::string &fname, amrex::Geometry &geom, amrex::DistributionMapping &dm, amrex::BoxArray &ba);
 
-    void Print () const;
+    void InitFromFile (const std::string& fname, amrex::Geometry &geom, amrex::DistributionMapping &dm, amrex::BoxArray &ba);
 
-    template<typename T>
-    void CopyToDeviceAsync (const amrex::Vector<T>& h_vec, amrex::Gpu::DeviceVector<T>& d_vec);
-
-    template<typename T>
-    void CopyToHostAsync (const amrex::Gpu::DeviceVector<T>& d_vec, amrex::Vector<T>& h_vec);
-
-    void CopyDataToDevice ();
+    void print () const;
 
     // my_ = for this process
     int my_num_block_groups;  // each block group is a community of around 1500 people
@@ -33,6 +55,8 @@ struct UrbanPopData
     int all_num_block_groups;
     int all_num_agents;
 
+    amrex::Vector<BlockGroup> block_groups;
+
     // the vectors have one entry per agent
     amrex::Vector<int64_t> geoid;    // the census block group ID - determines the community number
     amrex::Vector<int> p_id;         // the unique person/agent id
@@ -40,12 +64,6 @@ struct UrbanPopData
     amrex::Vector<int> pr_age;       // age of this agent
     amrex::Vector<int> pr_emp_stat;  // whether employed or not
     amrex::Vector<int> pr_commute;   // commute distance
-
-    // device copies of the above host vectors
-    amrex::Gpu::DeviceVector<int64_t> geoid_d;
-    amrex::Gpu::DeviceVector<int> h_id_d;
-    amrex::Gpu::DeviceVector<int> pr_age_d;
-    amrex::Gpu::DeviceVector<int> pr_emp_stat_d;
-    amrex::Gpu::DeviceVector<int> pr_commute_d;
-
 };
+
+}

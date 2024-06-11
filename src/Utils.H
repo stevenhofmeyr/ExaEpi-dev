@@ -61,6 +61,9 @@ struct TestParams
     */
     std::string case_filename;
 
+    /*! Name of file containing UrbanPop entries in csv format. */
+    std::string urbanpop_filename;
+
     int aggregated_diag_int;            /*!< interval for writing aggregated diagnostic data
                                              (see: ExaEpi::IO::writeFIPSData) */
     std::string aggregated_diag_prefix; /*!< filename prefix for diagnostic data
@@ -79,8 +82,9 @@ struct TestParams
   */
 struct ICType {
     enum {
-        Demo = 0,   /*!< Initial power law (default) */
-        Census = 1  /*!< Census data */
+        Demo = 0,     /*!< Initial power law (default) */
+        Census = 1,   /*!< Census data */
+        UrbanPop = 2  /*!< UrbanPop data */
     };
 };
 

@@ -97,17 +97,17 @@ void runAgent ()
     ExaEpi::Utils::get_test_params(params, "agent");
 
     DemographicData demo;
-    UrbanPopData urban_pop;
-    int Ncommunities = 0;
+    UrbanPop::UrbanPopData urban_pop;
+    Geometry geom;
+    BoxArray ba;
+    DistributionMapping dm;
+
     switch (params.ic_type) {
         case ICType::Census:
             demo.InitFromFile(params.census_filename);
-            Ncommunities = demo.Ncommunity;
             break;
         case ICType::UrbanPop:
-            urban_pop.InitFromFile(params.urbanpop_filename);
-            // Need more grid space to ensure that each process has sufficient locations for the communities it has loaded
-            Ncommunities = urban_pop.all_num_block_groups * 2.0;
+            urban_pop.InitFromFile(params.urbanpop_filename, geom, dm, ba);
             break;
     }
     if (params.ic_type == ICType::UrbanPop) return;
@@ -117,13 +117,8 @@ void runAgent ()
         cases.InitFromFile(params.case_filename);
     }
 
-    Geometry geom = ExaEpi::Utils::get_geometry(Ncommunities, params);
-    auto geom_x = geom.Domain().length(0);
-    if (geom_x < ParallelDescriptor::NProcs()) geom_x = ParallelDescriptor::NProcs();
-    params.max_grid_size = geom_x / ParallelDescriptor::NProcs();
+    geom = ExaEpi::Utils::get_geometry(demo, params);
 
-    BoxArray ba;
-    DistributionMapping dm;
     ba.define(geom.Domain());
     ba.maxSize(params.max_grid_size);
     dm.define(ba);

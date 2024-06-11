@@ -55,6 +55,9 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
         } else {
             amrex::Abort("initial case type not recognized");
         }
+    } else if (ic_type == "urbanpop") {
+        params.ic_type = ICType::UrbanPop;
+        pp.get("urbanpop_filename", params.urbanpop_filename);
     } else {
         amrex::Abort("ic type not recognized");
     }

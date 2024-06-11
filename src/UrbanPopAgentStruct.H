@@ -78,6 +78,7 @@ struct UrbanPopAgent {
         if (!getline(f, buf)) return false;
         if (buf[0] != '*') {
             p_id = -1;
+            amrex::AllPrint() << "line is '" << buf << "'\n";
             return true;
         }
         try {
@@ -159,37 +160,6 @@ struct UrbanPopAgent {
         os << string(agent.pr_naics, NAICS_LEN) << ",";
 
         return os;
-    }
-};
-
-struct UrbanPopBlockGroup {
-    int64_t geoid;
-    float latitude;
-    float longitude;
-    size_t file_offset;
-    int population;
-
-    static const int NTOKS = 5;
-
-    bool read(std::istringstream &iss) {
-        string buf;
-        if (!getline(iss, buf)) return false;
-        try {
-            std::vector<string> tokens = split_string(buf.substr(2), ' ');
-            if (tokens.size() != UrbanPopBlockGroup::NTOKS)
-                throw std::runtime_error("Incorrect number of tokens, expected " + std::to_string(NTOKS) +
-                                         " got " + std::to_string(tokens.size()));
-            geoid = stol(tokens[0]);
-            latitude = stof(tokens[1]);
-            longitude = stof(tokens[2]);
-            file_offset = stol(tokens[3]);
-            population = stoi(tokens[4]);
-        } catch (const std::exception &ex) {
-            std::ostringstream os;
-            os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
-            amrex::Abort(os.str());
-        }
-        return true;
     }
 };
 

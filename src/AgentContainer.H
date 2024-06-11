@@ -154,7 +154,7 @@ public:
                            amrex::iMultiFab& comm_mf,
                            DemographicData& demo);
 
-    void initAgentsUrbanPop (UrbanPopData &urban_pop);
+    void initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop);
 
     void morningCommute(amrex::MultiFab&);
 

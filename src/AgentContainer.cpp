@@ -477,6 +477,7 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
         auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
         auto timer_ptr = soa.GetRealData(RealIdx::treatment_timer).data();
         auto dx = ParticleGeom(0).CellSizeArray();
+        auto myproc = MyProc();
 
         Long pid;
 #ifdef AMREX_USE_OMP
@@ -575,7 +576,7 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
                 agent.pos(0) = (i + 0.5_rt)*dx[0];
                 agent.pos(1) = (j + 0.5_rt)*dx[1];
                 agent.id()  = pid+ip;
-                agent.cpu() = MyProc();
+                agent.cpu() = myproc;
 
                 status_ptr[ip] = 0;
                 counter_ptr[ip] = 0.0_rt;
@@ -606,7 +607,7 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
 }
 
 
-static std::pair<std::unordered_map<int64_t, IntVect>, int> get_geoids_in_box(const UrbanPopData &urban_pop,
+static std::pair<std::unordered_map<int64_t, IntVect>, int> get_geoids_in_box(const UrbanPop::UrbanPopData &urban_pop,
                                                                               int start_i, const amrex::Box &bx,
                                                                               int box_i, int num_boxes) {
     int xlen = bx.length(0);
@@ -657,7 +658,7 @@ static std::pair<std::unordered_map<int64_t, IntVect>, int> get_geoids_in_box(co
 * that each process has read in a block of the data, consisting of a non-overlapping subset of the communities, and hence may
 * cover overlapping physical space.
 */
-void AgentContainer::initAgentsUrbanPop (UrbanPopData &urban_pop)
+void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop)
 {
     BL_PROFILE("initAgentsUrbanPop");
     for (int lev = 0; lev <= finestLevel(); ++lev) {
