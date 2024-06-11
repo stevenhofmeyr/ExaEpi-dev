@@ -199,41 +199,6 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
         }
         if (bi_loc == -1) AllPrint() << MyProc() << ": WARNING: could not find box for " << x << "," << y << "\n";
     }
-
-    /*
-    // FIXME: testing the agent allocations
-    AgentContainer agent_container(geom, dm, ba);
-    int num_tile_boxes = 0;
-    int tot_population = 0;
-    for (MFIter mfi = agent_container.MakeMFIter(0, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-    //for (MFIter mfi = agent_container.MakeMFIter(0); mfi.isValid(); ++mfi) {
-        auto bx = mfi.tilebox();
-        //auto bx = mfi.validbox();
-        // find box in box array
-        int bi_loc = -1;
-        for (int bi = 0; bi < ba.size(); bi++) {
-            //if (bx == ba_latlong[bi]) {
-            if (ba[bi].contains(bx)) {
-                bi_loc = bi;
-                break;
-            }
-        }
-        if (bi_loc == -1) {
-            AllPrint() << ParallelDescriptor::MyProc() << ": WARNING: could not find box for tile box "
-                        << num_tile_boxes << "\n";
-        } else {
-            tot_population += weights[bi_loc];
-            // for tiling - don't count multiple times
-            weights[bi_loc] = 0;
-        }
-        num_tile_boxes++;
-    }
-    AllPrint() << "<" << ParallelDescriptor::MyProc() << ">: " << num_tile_boxes << " tile boxes, "
-               << tot_population << " population\n";
-    ParallelDescriptor::ReduceIntSum(tot_population);
-    ParallelContext::BarrierAll();
-    Print() << "Total population across all processors is " << tot_population << "\n";
-    */
 }
 
 static std::pair<int, double> get_all_load_balance(long num) {

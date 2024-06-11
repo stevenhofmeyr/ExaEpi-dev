@@ -1443,6 +1443,7 @@ void AgentContainer::writeAgentsFile (const string &fname) {
     outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\twork_nbh\n";
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev  = GetParticles(lev);
+        int max_x = 0, max_y = 0;
         for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
@@ -1468,6 +1469,29 @@ void AgentContainer::writeAgentsFile (const string &fname) {
                       << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
                       << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\t"
                       << work_nborhood_ptr[i] << "\n";
+                max_x = std::max(max_x, home_i_ptr[i]);
+                max_y = std::max(max_y, home_j_ptr[i]);
+            }
+        }
+        Vector<Vector<int>> communities(max_x + 1, Vector<int>(max_y + 1, 0));
+
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            int gid = mfi.index();
+            int tid = mfi.LocalTileIndex();
+            auto& ptile = plev[std::make_pair(gid, tid)];
+            auto& soa = ptile.GetStructOfArrays();
+            auto& aos = ptile.GetArrayOfStructs();
+            const auto np = ptile.numParticles();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            for (int i = 0; i < np; i++) {
+                auto& agent = aos[i];
+                communities[home_i_ptr[i]][home_j_ptr[i]]++;
+            }
+        }
+        for (int x = 0; x < max_x; x++) {
+            for (int y = 0; y < max_y; y++) {
+                AllPrint() << "x,y " << x << "," << y << " pop " << communities[x][y] << "\n";
             }
         }
     }
