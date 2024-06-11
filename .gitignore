@@ -8,4 +8,4 @@ notes
 .build
 .vscode
 data/UrbanPop
-UrbanPop-scripts/read_urbanpop_data
+UrbanPop-scripts/read_csv
