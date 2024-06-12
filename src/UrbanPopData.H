@@ -29,6 +29,8 @@ struct BlockGroup {
     size_t file_offset;
     int population;
     int box_i;
+    int x;
+    int y;
     int num_households;
     int num_employed;
     int num_military;
@@ -39,31 +41,18 @@ struct BlockGroup {
 };
 
 struct UrbanPopData {
+    // each block group has around 1500 people
+    amrex::Vector<BlockGroup> block_groups;
+
     /*! \brief Null constructor */
     UrbanPopData () {}
 
     void construct_geom(const std::string &fname, amrex::Geometry &geom, amrex::DistributionMapping &dm, amrex::BoxArray &ba);
 
-    void InitFromFile (const std::string& fname, amrex::Geometry &geom, amrex::DistributionMapping &dm, amrex::BoxArray &ba);
+    void InitFromFile(const std::string& fname, amrex::Geometry &geom, amrex::DistributionMapping &dm, amrex::BoxArray &ba);
 
-    void print () const;
+    void print() const;
 
-    // my_ = for this process
-    int my_num_block_groups;  // each block group is a community of around 1500 people
-    int my_num_agents;        // number of people
-    // across all processes
-    int all_num_block_groups;
-    int all_num_agents;
-
-    amrex::Vector<BlockGroup> block_groups;
-
-    // the vectors have one entry per agent
-    amrex::Vector<int64_t> geoid;    // the census block group ID - determines the community number
-    amrex::Vector<int> p_id;         // the unique person/agent id
-    amrex::Vector<int> h_id;         // the ID of the household this agent belongs to - this is the same as the family ID
-    amrex::Vector<int> pr_age;       // age of this agent
-    amrex::Vector<int> pr_emp_stat;  // whether employed or not
-    amrex::Vector<int> pr_commute;   // commute distance
 };
 
 }

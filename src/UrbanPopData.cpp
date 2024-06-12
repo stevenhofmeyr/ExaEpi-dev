@@ -161,18 +161,19 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
     Vector<Long> weights(ba.size(), 0);
     for (auto &block_group : all_block_groups) {
         // convert lat/long coords to grid coords
-        int x = (block_group.latitude - min_lat) / gspacing_x;
-        int y = (block_group.longitude - min_long) / gspacing_y;
+        block_group.x = (block_group.latitude - min_lat) / gspacing_x;
+        block_group.y = (block_group.longitude - min_long) / gspacing_y;
         int bi_loc = -1;
         for (int bi = 0; bi < ba.size(); bi++) {
             auto bx = ba[bi];
-            if (bx.contains(IntVect(x, y))) {
+            if (bx.contains(IntVect(block_group.x, block_group.y))) {
                 bi_loc = bi;
                 weights[bi] += block_group.population;
                 break;
             }
         }
-        if (bi_loc == -1) AllPrint() << MyProc() << ": WARNING: could not find box for " << x << "," << y << "\n";
+        if (bi_loc == -1)
+            AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
     }
     //dm_latlong.SFCProcessorMap(ba, weights, NProcs());
     //Print() << "ba " << ba << " dm_latlong " << dm_latlong << "\n";
@@ -182,13 +183,11 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
 
     block_groups.clear();
     for (auto &block_group : all_block_groups) {
-        int x = (block_group.latitude - min_lat) / gspacing_x;
-        int y = (block_group.longitude - min_long) / gspacing_y;
         int bi_loc = -1;
         for (int bi = 0; bi < ba.size(); bi++) {
             auto bx = ba[bi];
             // do we own this box?
-            if (bx.contains(IntVect(x, y))) {
+            if (bx.contains(IntVect(block_group.x, block_group.y))) {
                 bi_loc = bi;
                 if (dm[bi] == MyProc()) {
                     block_group.box_i = bi;
@@ -197,7 +196,8 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
                 break;
             }
         }
-        if (bi_loc == -1) AllPrint() << MyProc() << ": WARNING: could not find box for " << x << "," << y << "\n";
+        if (bi_loc == -1)
+            AllPrint() << MyProc() << ": WARNING: could not find box for " << block_group.x << "," << block_group.y << "\n";
     }
 }
 
@@ -226,21 +226,17 @@ void UrbanPopData::InitFromFile (const string& fname, Geometry &geom, Distributi
     int num_employed = 0;
     int num_military = 0;
     int num_households = 0;
-    my_num_agents = 0;
+    int my_num_agents = 0;
     ifstream f(fname);
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     for (auto &block_group : block_groups) {
         my_num_agents += block_group.population;
         block_group.read_people(f);
     }
-    AllPrint() << "<" << MyProc() << ">: " << my_num_agents << " population in " << block_groups.size() << " block groups\n";
-    my_num_block_groups = block_groups.size();
-
-
+    //AllPrint() << "<" << MyProc() << ">: " << my_num_agents << " population in " << block_groups.size() << " block groups\n";
+    int my_num_block_groups = block_groups.size();
     auto [all_num_block_groups, load_balance_block_groups] = get_all_load_balance(my_num_block_groups);
-    this->all_num_block_groups = all_num_block_groups;
     auto [all_num_agents, load_balance_agents] = get_all_load_balance(my_num_agents);
-    this->all_num_agents = all_num_agents;
     ParallelContext::BarrierAll();
 
     ParallelDescriptor::ReduceIntSum(num_employed);

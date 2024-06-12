@@ -110,24 +110,23 @@ void runAgent ()
             urban_pop.InitFromFile(params.urbanpop_filename, geom, dm, ba);
             break;
     }
-    if (params.ic_type == ICType::UrbanPop) return;
+    //if (params.ic_type == ICType::UrbanPop) return;
 
     CaseData cases;
     if (params.ic_type == ICType::Census && params.initial_case_type == "file") {
         cases.InitFromFile(params.case_filename);
     }
 
-    geom = ExaEpi::Utils::get_geometry(demo, params);
-
-    ba.define(geom.Domain());
-    ba.maxSize(params.max_grid_size);
-    dm.define(ba);
-
-    // each grid point in a box corresponds to a community
-    amrex::Print() << "Base domain is: " << geom.Domain() << "\n";
-    amrex::Print() << "Max grid size is: " << params.max_grid_size << "\n";
-    amrex::Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
-
+    if (params.ic_type != ICType::UrbanPop) {
+        geom = ExaEpi::Utils::get_geometry(demo, params);
+        ba.define(geom.Domain());
+        ba.maxSize(params.max_grid_size);
+        dm.define(ba);
+        // each grid point in a box corresponds to a community
+        amrex::Print() << "Base domain is: " << geom.Domain() << "\n";
+        amrex::Print() << "Max grid size is: " << params.max_grid_size << "\n";
+        amrex::Print() << "Number of boxes is: " << ba.size() << " over " << ParallelDescriptor::NProcs() << " ranks. \n";
+    }
     // The default output filename is output.dat
     std::string output_filename = "output.dat";
     ParmParse pp("diag");
@@ -188,11 +187,9 @@ void runAgent ()
         }
     }
 
+    ParallelContext::BarrierAll();
     pc.writeAgentsFile("agents.csv");
-    if (params.ic_type == ICType::UrbanPop) {
-        params.nsteps = 0;
-        //amrex::Abort("UrbanPop not yet implemented\n");
-    }
+    if (params.ic_type == ICType::UrbanPop) return;
 
     int  step_of_peak = 0;
     Long num_infected_peak = 0;
