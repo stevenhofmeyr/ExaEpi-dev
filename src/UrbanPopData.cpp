@@ -36,6 +36,25 @@ using std::runtime_error;
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
+struct XYLoc {
+    int x,y;
+
+    XYLoc(int x, int y) : x(x), y(y) {}
+
+    bool operator==(const XYLoc &other) const {
+        return x == other.x && y == other.y;
+    }
+};
+
+namespace std {
+    template <>
+    struct hash<XYLoc> {
+        size_t operator()(const XYLoc &elem) const {
+            return std::hash<int64_t>{}(elem.x) ^ (std::hash<int64_t>{}(elem.y) << 1);
+        }
+    };
+ }
+
 namespace UrbanPop {
 
 void Person::set(int64_t geoid, int p_id, int h_id, int pr_age, int pr_emp_stat, int pr_commute) {
@@ -157,12 +176,19 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
     // split the box array by forcing the box size to be limited to a given number of grid points
     ba.maxSize(0.25 * grid_x / NProcs());
     Print() << "Number of boxes: " << ba.size() << "\n";
+    // for checking that no x,y locations are duplicated
+    std::unordered_set<XYLoc> xy_locs;
     // weights set according to population in each box so that they can be uniformly distributed
     Vector<Long> weights(ba.size(), 0);
     for (auto &block_group : all_block_groups) {
+        // FIXME: check that the x,y calculated here are unique
         // convert lat/long coords to grid coords
         block_group.x = (block_group.latitude - min_lat) / gspacing_x;
         block_group.y = (block_group.longitude - min_long) / gspacing_y;
+        XYLoc xy_loc(block_group.x, block_group.y);
+        auto it = xy_locs.find(xy_loc);
+        if (it != xy_locs.end()) Abort("Found duplicate x,y location; need to decrease gspacing\n");
+        else xy_locs.insert(xy_loc);
         int bi_loc = -1;
         for (int bi = 0; bi < ba.size(); bi++) {
             auto bx = ba[bi];

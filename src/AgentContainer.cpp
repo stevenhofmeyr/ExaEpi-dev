@@ -606,50 +606,6 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
     amrex::Gpu::streamSynchronize();
 }
 
-/*
-static std::pair<std::unordered_map<int64_t, IntVect>, int> get_geoids_in_box(const UrbanPop::UrbanPopData &urban_pop,
-                                                                              int start_i, const amrex::Box &bx,
-                                                                              int box_i, int num_boxes) {
-    int xlen = bx.length(0);
-    int ylen = bx.length(1);
-    int groups_per_box = std::max(urban_pop.my_num_block_groups / num_boxes, urban_pop.my_num_block_groups);
-    int max_block_groups = std::min(xlen * ylen, groups_per_box);
-    if (box_i == num_boxes - 1) max_block_groups = xlen * ylen;
-    int np = 0;
-    std::unordered_map<int64_t, IntVect> geoid_to_loc_map;
-    int num_block_groups = 0;
-    int start_x = bx.smallEnd()[0];
-    int start_y = bx.smallEnd()[1];
-    int max_x = bx.bigEnd()[0];
-    int max_y = bx.bigEnd()[1];
-    int x = start_x;
-    int y = start_y;
-    int64_t geoid = -1;
-    // determine how many block groups will fit in this box
-    for (int i = start_i; i < urban_pop.my_num_agents; i++) {
-        auto new_geoid = urban_pop.geoid[i];
-        if (geoid != new_geoid) {
-            num_block_groups++;
-            if (num_block_groups > max_block_groups) {
-                num_block_groups--;
-                break;
-            }
-            geoid = new_geoid;
-            AMREX_ALWAYS_ASSERT(x <= max_x && y <= max_y);
-            geoid_to_loc_map.insert({geoid, IntVect(AMREX_D_DECL(x, y, 0))});
-            x++;
-            if (x > max_x) {
-                x = start_x;
-                y++;
-            }
-        }
-        np++;
-    }
-    AMREX_ALWAYS_ASSERT(num_block_groups == geoid_to_loc_map.size());
-    return std::make_pair(geoid_to_loc_map, np);
-}
-*/
-
 /*! \brief Initialize agents for ExaEpi::ICType::UrbanPop
 * Each agent belongs to a community, which is a census block group. These are on average 1500 people in size.
 * Each community is located at an x,y point in grid space, and an x,y point in the underlying domain.
