@@ -38,7 +38,6 @@ static void binaryInteractionHome ( const int a_i, /*!< Index of infectious agen
     ParticleReal prob = 1.0_prt;
     if (     (nborhood_ptr[a_i] == nborhood_ptr[a_j])
           && (family_ptr[a_i] == family_ptr[a_j]) ) {
-        Abort("at home\n");
         /* at home, within a family */
         if (age_group_ptr[a_i] <= 1) {  /* Transmitter i is a child */
             if (school_ptr[a_i] < 0) { // not attending school, use _SC contacts
