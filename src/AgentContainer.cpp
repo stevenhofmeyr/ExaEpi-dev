@@ -472,7 +472,6 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
 
         auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
         auto timer_ptr = soa.GetRealData(RealIdx::treatment_timer).data();
@@ -592,7 +591,6 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
                 work_i_ptr[ip] = i;
                 work_j_ptr[ip] = j;
                 nborhood_ptr[ip] = nborhood;
-                work_nborhood_ptr[ip] = 5*nborhood;
                 workgroup_ptr[ip] = 0;
 
                 if (age_group == 0) {
@@ -656,7 +654,6 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
 
         int pi = 0;
         for (auto &block_group : block_groups) {
@@ -695,11 +692,11 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                     current_h_id = person.h_id;
                 }
                 nborhood_ptr[pi] = nborhood;
-                // these values are set in read_workerflow()
-                // FIXME: they should be obtained from UrbanPop data
+                // FIXME: these values should be obtained from UrbanPop data
+                // FIXME: set the work location randomly at the commute distance
                 work_i_ptr[pi] = x;
                 work_j_ptr[pi] = y;
-                work_nborhood_ptr[pi] = 5 * nborhood;
+                // workgroups should be of size 20
                 workgroup_ptr[pi] = 0;
                 if (age < 5) school_ptr[pi] = 5;
                 else if (age < 7) school_ptr[pi] = 4;
@@ -1408,15 +1405,13 @@ void AgentContainer::writeAgentsFile (const string &fname) {
             auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
             auto school_ptr = soa.GetIntData(IntIdx::school).data();
             auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-            auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
             for (int i = 0; i < np; i++) {
                 auto& agent = aos[i];
                 outfs << agent.id() << "\t" << std::fixed << std::setprecision(8) << agent.pos(0) << "\t" << agent.pos(1) << "\t"
                       << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
                       << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
                       << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
-                      << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\t"
-                      << work_nborhood_ptr[i] << "\n";
+                      << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\n";
                 max_x = std::max(max_x, home_i_ptr[i]);
                 max_y = std::max(max_y, home_j_ptr[i]);
             }

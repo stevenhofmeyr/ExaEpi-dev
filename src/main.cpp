@@ -110,7 +110,6 @@ void runAgent ()
             urban_pop.InitFromFile(params.urbanpop_filename, geom, dm, ba);
             break;
     }
-    //if (params.ic_type == ICType::UrbanPop) return;
 
     CaseData cases;
     if (params.ic_type == ICType::Census && params.initial_case_type == "file") {
@@ -329,6 +328,9 @@ void runAgent ()
             cur_time += 1.0_rt; // time step is one day
         }
     }
+
+    AllPrint() << "Process " << ParallelDescriptor::MyProc() << " finished main agent loop\n";
+    ParallelContext::BarrierAll();
 
     amrex::Print() << "\n \n";
     amrex::Print() << "Peak number of infected: " << num_infected_peak << "\n";

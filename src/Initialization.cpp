@@ -147,7 +147,6 @@ namespace Initialization
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
         auto np = soa.numParticles();
 
         auto unit_arr = unit_mf[mfi].array();
@@ -197,8 +196,6 @@ namespace Initialization
                     constexpr int WG_size = 20;
                     number = (unsigned int) rint( ((Real) Ndaywork[to]) /
                              ((Real) WG_size * (Start[to+1] - Start[to])) );
-
-                    work_nborhood_ptr[ip]=4*(amrex::Random_int(4, engine))+nborhood_ptr[ip];
 
                     if (number) {
                         workgroup_ptr[ip] = 1 + amrex::Random_int(number, engine);

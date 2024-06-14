@@ -37,7 +37,6 @@ struct IntIdx
         nborhood,       /*!< home neighborhood ID */
         school,         /*!< school type (elementary, middle, high, none) */
         workgroup,      /*!< workgroup ID */
-        work_nborhood,  /*!< work neighborhood ID */
         withdrawn,      /*!< quarantine status */
         symptomatic,    /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */
         nattribs        /*!< number of integer-type attribute */
