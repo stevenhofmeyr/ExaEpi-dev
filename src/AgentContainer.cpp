@@ -663,6 +663,9 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
             tot_np += block_group.people.size();
             int x = block_group.x;
             int y = block_group.y;
+            int current_h_id = -1;
+            // FIXME nbhood size should be as close to 500 as possible, not just the block group size / 4
+            int nborhood = Random_int(4, engine);
             for (auto &person : block_group.people) {
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
@@ -685,12 +688,16 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 family_ptr[pi] = person.h_id;
                 home_i_ptr[pi] = x;
                 home_j_ptr[pi] = y;
+                // choose new nbhood for next household
+                if (current_h_id != person.h_id) {
+                    nborhood = Random_int(4, engine);
+                    current_h_id = person.h_id;
+                }
+                nborhood_ptr[pi] = nborhood;
+                // these values are set in read_workerflow()
+                // FIXME: they should be obtained from UrbanPop data
                 work_i_ptr[pi] = x;
                 work_j_ptr[pi] = y;
-                // FIXME nbhood size should be as close to 500 as possible, not just the block group size / 4
-                // FIXME all family members should be in the same nbhood
-                int nborhood = 0;//Random_int(4, engine);
-                nborhood_ptr[pi] = nborhood;
                 work_nborhood_ptr[pi] = 5 * nborhood;
                 workgroup_ptr[pi] = 0;
                 if (age < 5) school_ptr[pi] = 5;

@@ -27,7 +27,6 @@ struct BlockGroup {
     float latitude;
     float longitude;
     size_t file_offset;
-    int population;
     int box_i;
     int x;
     int y;

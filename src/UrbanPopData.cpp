@@ -79,7 +79,8 @@ bool BlockGroup::read(istringstream &iss) {
         latitude = stof(tokens[1]);
         longitude = stof(tokens[2]);
         file_offset = stol(tokens[3]);
-        population = stoi(tokens[4]);
+        int population = stoi(tokens[4]);
+        people.resize(population);
     } catch (const std::exception &ex) {
         std::ostringstream os;
         os << "Error reading UrbanPop input file: " << ex.what() << ", line read: " << "'" << buf << "'";
@@ -89,7 +90,6 @@ bool BlockGroup::read(istringstream &iss) {
 }
 
 bool BlockGroup::read_people(ifstream &f) {
-    people.resize(population);
     string buf;
     num_employed = 0;
     num_military = 0;
@@ -194,7 +194,7 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
             auto bx = ba[bi];
             if (bx.contains(IntVect(block_group.x, block_group.y))) {
                 bi_loc = bi;
-                weights[bi] += block_group.population;
+                weights[bi] += block_group.people.size();
                 break;
             }
         }
@@ -256,7 +256,7 @@ void UrbanPopData::InitFromFile (const string& fname, Geometry &geom, Distributi
     ifstream f(fname);
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     for (auto &block_group : block_groups) {
-        my_num_agents += block_group.population;
+        my_num_agents += block_group.people.size();
         block_group.read_people(f);
     }
     //AllPrint() << "<" << MyProc() << ">: " << my_num_agents << " population in " << block_groups.size() << " block groups\n";
