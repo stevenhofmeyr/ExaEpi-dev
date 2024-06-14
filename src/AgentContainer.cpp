@@ -664,8 +664,9 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
             int x = block_group.x;
             int y = block_group.y;
             int current_h_id = -1;
-            // FIXME nbhood size should be as close to 500 as possible, not just the block group size / 4
-            int nborhood = Random_int(4, engine);
+            // set number of nbhoods to get each nbhood as close to 500 as possible
+            int num_nbhoods = std::max(std::round((double)block_group.people.size() / 500), 1.0);
+            int nborhood = Random_int(num_nbhoods, engine);
             for (auto &person : block_group.people) {
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
@@ -690,7 +691,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 home_j_ptr[pi] = y;
                 // choose new nbhood for next household
                 if (current_h_id != person.h_id) {
-                    nborhood = Random_int(4, engine);
+                    nborhood = Random_int(num_nbhoods, engine);
                     current_h_id = person.h_id;
                 }
                 nborhood_ptr[pi] = nborhood;
