@@ -15,34 +15,12 @@
 #include <AMReX_iMultiFab.H>
 #include <AMReX_Vector.H>
 
+#include "Utils.H"
 #include "AgentDefinitions.H"
 #include "DemographicData.H"
 #include "DiseaseParm.H"
 #include "InteractionModelLibrary.H"
 #include "UrbanPopData.H"
-
-/*! \brief Assigns school by taking a random number between 0 and 100, and using
- *  default distribution to choose elementary/middle/high school. */
-AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-int assign_school (const int nborhood, const amrex::RandomEngine& engine) {
-    int il4 = amrex::Random_int(100, engine);
-    int school = -1;
-
-    if (il4 < 36) {
-        school = 3 + (nborhood / 2);  /* elementary school */
-    }
-    else if (il4 < 68) {
-        school = 2;  /* middle school */
-    }
-
-    else if (il4 < 93) {
-        school = 1;  /* high school */
-    }
-    else {
-        school = 0;  /* not in school, presumably 18-year-olds or some home-schooled */
-    }
-    return school;
-}
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer
@@ -142,12 +120,6 @@ public:
 #endif
     }
 
-    void initAgentsDemo (amrex::iMultiFab& /*num_residents*/,
-                         amrex::iMultiFab& /*unit_mf*/,
-                         amrex::iMultiFab& /*FIPS_mf*/,
-                         amrex::iMultiFab& /*comm_mf*/,
-                         DemographicData& /*demo*/);
-
     void initAgentsCensus (amrex::iMultiFab& num_residents,
                            amrex::iMultiFab& unit_mf,
                            amrex::iMultiFab& FIPS_mf,
@@ -166,7 +138,7 @@ public:
 
     void interactNight(amrex::MultiFab&);
 
-    void moveAgentsRandomWalk ();
+    //void moveAgentsRandomWalk ();
 
     void moveRandomTravel ();
 
@@ -220,6 +192,10 @@ public:
 
 protected:
 
+    short ic_type;
+    amrex::Real min_pos_x = 0;
+    amrex::Real min_pos_y = 0;
+
     int m_symptomatic_withdraw = 1;
 
     amrex::Real m_shelter_compliance = 0.95_rt;
@@ -248,6 +224,7 @@ protected:
         return (it != m_interactions.end());
     }
 
+    void set_particle_pos(ParticleType &particle, int x, int y, float dx, float dy);
 
 };
 

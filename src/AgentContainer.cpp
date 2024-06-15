@@ -7,266 +7,56 @@
 using namespace amrex;
 
 using std::string;
-using std::to_string;;
+using std::to_string;
 
 using ParallelDescriptor::MyProc;
 using ParallelDescriptor::NProcs;
 
-namespace {
+/*! \brief Assigns school by taking a random number between 0 and 100, and using
+ *  default distribution to choose elementary/middle/high school. */
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+int assign_school (const int nborhood, const amrex::RandomEngine& engine) {
+    int il4 = amrex::Random_int(100, engine);
+    int school = -1;
 
-    /*! \brief Shuffle the elements of a given vector */
-    void randomShuffle (std::vector<int>& vec /*!< Vector to be shuffled */)
-    {
-        std::random_device rd;
-        std::mt19937 g(rd());
-        std::shuffle(vec.begin(), vec.end(), g);
+    if (il4 < 36) {
+        school = 3 + (nborhood / 2);  /* elementary school */
+    }
+    else if (il4 < 68) {
+        school = 2;  /* middle school */
     }
 
-    /*! \brief
-    */
-    void compute_initial_distribution (amrex::Vector<int>& cell_pops, /*!< */
-                                       amrex::Vector<int>& cell_indices, /*!< */
-                                       int ncell /*!< */)
-    {
-        BL_PROFILE("compute_initial_distribution");
-
-        AMREX_ALWAYS_ASSERT(ncell == 3000); // hard-coded right now
-
-        cell_pops.resize(0);
-        cell_pops.resize(ncell*ncell, -1);
-
-        // we compute the initial distribution on Rank 0 and broadcast to all ranks
-        if (ParallelDescriptor::IOProcessor())
-        {
-            int num_pop_bins = 1000;
-            amrex::Real log_min_pop = 1.062_rt;
-            amrex::Real log_max_pop = 4.0_rt;
-            amrex::Vector<amrex::Real> cell_pop_bins_r(num_pop_bins);
-            amrex::Vector<amrex::Real> num_cells_per_bin_r(num_pop_bins);
-
-            for (int i = 0; i < cell_pop_bins_r.size(); ++i) {
-                cell_pop_bins_r[i] = std::pow(10.0_rt,
-                    log_min_pop + i*(log_max_pop - log_min_pop)/(num_pop_bins-1));
-                num_cells_per_bin_r[i] = std::pow(cell_pop_bins_r[i], -1.5_rt);
-            }
-
-            amrex::Real norm = 0_rt;
-            for (int i = 0; i < num_cells_per_bin_r.size(); ++i) {
-                norm += num_cells_per_bin_r[i];
-            }
-
-            amrex::Vector<int> cell_pop_bins(num_pop_bins);
-            amrex::Vector<int> num_cells_per_bin(num_pop_bins);
-            for (int i = 0; i < num_cells_per_bin.size(); ++i) {
-                num_cells_per_bin_r[i] *= (ncell*ncell/norm);
-                num_cells_per_bin[i] = static_cast<int>(std::round(num_cells_per_bin_r[i]));
-                cell_pop_bins[i] = static_cast<int>(std::round(cell_pop_bins_r[i]));
-            }
-
-            int total_cells = 0;
-            for (int i = 0; i < num_cells_per_bin.size(); ++i) {
-                total_cells += num_cells_per_bin[i];
-            }
-            num_cells_per_bin[0] += (ncell*ncell - total_cells);
-
-            std::vector<int> perm(ncell*ncell);
-            std::iota(perm.begin(), perm.end(), 0);
-            randomShuffle(perm);
-
-            Vector<int> offsets(num_pop_bins+1);
-            offsets[0] = 0;
-            for (int i = 1; i < num_pop_bins+1; ++i) {
-                offsets[i] = offsets[i-1] + num_cells_per_bin[i-1];
-            }
-
-            for (int i = 0; i < num_pop_bins; ++i) {
-                for (int j = offsets[i]; j < offsets[i+1]; ++j) {
-                    cell_pops[perm[j]] = cell_pop_bins[i];
-                }
-            }
-
-            int total_agents = 0;
-            for (int i = 0; i < cell_pops.size(); ++i) {
-                total_agents += cell_pops[i];
-            }
-            Print() << "Total number of agents: " << total_agents << "\n";
-
-            Print() << "Splitting up population into interior and border\n";
-            // we now have a list of populations for each cell. We want 1/3
-            // of the population to be within 200 cells of the border. We
-            // maintain two separate lists, one for the interior, one for the exterior
-            int interior_size = 2600*2600;
-            int border_size = ncell*ncell - interior_size;
-
-            // First we sort the vector of cell pops
-            std::sort(cell_pops.begin(), cell_pops.end());
-            amrex::Real border_pop = 0_rt;
-            int i = cell_pops.size()-1;
-            std::vector<int> border_ids;
-            std::vector<int> interior_ids;
-            while ((border_pop < 100e6) && (i >= 0)) {
-                amrex::Real pop = cell_pops[i];
-                if (amrex::Random() < 0.5) {
-                    border_ids.push_back(i);
-                    border_pop += pop;
-                }
-                else {
-                    interior_ids.push_back(i);
-                }
-                --i;
-            }
-
-            while (interior_ids.size() < static_cast<std::size_t>(interior_size)) {
-                interior_ids.push_back(i);
-                --i;
-            }
-
-            while (i >= 0) {
-                amrex::Real pop = cell_pops[i];
-                border_pop += pop;
-                border_ids.push_back(i);
-                --i;
-            }
-
-            // if these conditions are not met, then something has gone wrong with the border pop
-            AMREX_ALWAYS_ASSERT(i == -1);
-            AMREX_ALWAYS_ASSERT(interior_ids.size() == static_cast<std::size_t>(interior_size));
-            AMREX_ALWAYS_ASSERT(border_ids.size() == static_cast<std::size_t>(border_size));
-
-            Print() << "Population within 200 cells of border is " << border_pop << "\n";
-
-            randomShuffle(border_ids);
-            randomShuffle(interior_ids);
-
-            for (int cell_id = 0; cell_id < ncell*ncell; ++cell_id) {
-                int idx = cell_id % ncell;
-                int idy = cell_id / ncell;
-                if ((idx < 200) || (idx >= 2800) || (idy < 200) || (idy >= 2800)) {
-                    cell_indices.push_back(border_ids.back());
-                    border_ids.pop_back();
-                } else {
-                    cell_indices.push_back(interior_ids.back());
-                    interior_ids.pop_back();
-                }
-            }
-            AMREX_ALWAYS_ASSERT(interior_ids.size() == 0);
-            AMREX_ALWAYS_ASSERT(border_ids.size() == 0);
-        } else {
-            cell_indices.resize(0);
-            cell_indices.resize(ncell*ncell);
-        }
-
-        // Broadcast
-        ParallelDescriptor::Bcast(&cell_pops[0], cell_pops.size(),
-                                  ParallelDescriptor::IOProcessorNumber());
-        ParallelDescriptor::Bcast(&cell_indices[0], cell_indices.size(),
-                                  ParallelDescriptor::IOProcessorNumber());
+    else if (il4 < 93) {
+        school = 1;  /* high school */
     }
+    else {
+        school = 0;  /* not in school, presumably 18-year-olds or some home-schooled */
+    }
+    return school;
 }
 
-/*! \brief Initialize agents for ExaEpi::ICType::Demo */
-void AgentContainer::initAgentsDemo (iMultiFab& /*num_residents*/,
-                                     iMultiFab& /*unit_mf*/,
-                                     iMultiFab& /*FIPS_mf*/,
-                                     iMultiFab& /*comm_mf*/,
-                                     DemographicData& /*demo*/)
+/*! \brief Shuffle the elements of a given vector */
+void randomShuffle (std::vector<int>& vec /*!< Vector to be shuffled */)
 {
-    BL_PROFILE("AgentContainer::initAgentsDemo");
-
-    int ncell = 3000;
-    Vector<int> cell_pops;
-    Vector<int> cell_indices;
-
-    compute_initial_distribution(cell_pops, cell_indices, ncell);
-
-    // now each rank will only actually add a subset of the particles
-    int ibegin, iend;
-    {
-        int navg = ncell*ncell/NProcs();
-        int nleft = ncell*ncell - navg * NProcs();
-        if (MyProc() < nleft) {
-            ibegin = MyProc()*(navg+1);
-            iend = ibegin + navg+1;
-        } else {
-            ibegin = MyProc()*navg + nleft;
-            iend = ibegin + navg;
-        }
-    }
-    std::size_t ncell_this_rank = iend-ibegin;
-
-    std::size_t np_this_rank = 0;
-    for (int i = 0; i < ncell*ncell; ++i) {
-        if ((i < ibegin) || (i >= iend)) {
-            cell_pops[cell_indices[i]] = 0;
-        } else {
-            np_this_rank += cell_pops[cell_indices[i]];
-        }
-    }
-
-    // copy data to GPU
-    amrex::Gpu::DeviceVector<int> cell_pops_d(cell_pops.size());
-    amrex::Gpu::DeviceVector<int> cell_offsets_d(cell_pops.size()+1);
-    Gpu::copy(Gpu::hostToDevice, cell_pops.begin(), cell_pops.end(),
-              cell_pops_d.begin());
-    Gpu::exclusive_scan(cell_pops_d.begin(), cell_pops_d.end(), cell_offsets_d.begin());
-
-    amrex::Gpu::DeviceVector<int> cell_indices_d(cell_indices.size());
-    Gpu::copy(Gpu::hostToDevice, cell_indices.begin(), cell_indices.end(), cell_indices_d.begin());
-
-    // Fill in particle data in each cell
-    auto& ptile = DefineAndReturnParticleTile(0, 0, 0);
-    ptile.resize(np_this_rank);
-
-    auto& soa   = ptile.GetStructOfArrays();
-    auto& aos   = ptile.GetArrayOfStructs();
-    auto pstruct_ptr = aos().data();
-    auto status_ptr = soa.GetIntData(IntIdx::status).data();
-    auto strain_ptr = soa.GetIntData(IntIdx::strain).data();
-    auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
-
-    auto cell_offsets_ptr = cell_offsets_d.data();
-    auto cell_indices_ptr = cell_indices_d.data();
-
-    amrex::ParallelForRNG( ncell_this_rank,
-    [=] AMREX_GPU_DEVICE (int i_this_rank, RandomEngine const& engine) noexcept
-    {
-        int cell_id = i_this_rank + ibegin;
-        int ind = cell_indices_ptr[cell_id];
-
-        int cell_start = cell_offsets_ptr[ind];
-        int cell_stop = cell_offsets_ptr[ind+1];
-
-        int idx = cell_id % ncell;
-        int idy = cell_id / ncell;
-
-        for (int i = cell_start; i < cell_stop; ++i) {
-            auto& p = pstruct_ptr[i];
-            p.pos(0) = idx + 0.5_rt;
-            p.pos(1) = idy + 0.5_rt;
-            p.id() = i;
-            p.cpu() = 0;
-
-            counter_ptr[i] = 0.0_rt;
-            strain_ptr[i] = 0;
-
-            if (amrex::Random(engine) < 1e-6) {
-                status_ptr[i] = 1;
-                if (amrex::Random(engine) < 0.3) {
-                    strain_ptr[i] = 1;
-                }
-            }
-        }
-    });
-
-    Print() << "Initial Redistribute... ";
-
-    Redistribute();
-
-    Print() << "... finished initialization\n";
+    std::random_device rd;
+    std::mt19937 g(rd());
+    std::shuffle(vec.begin(), vec.end(), g);
 }
+
+void AgentContainer::set_particle_pos(ParticleType &particle, int x, int y, float dx, float dy) {
+    if (ic_type == ExaEpi::ICType::Census) {
+        particle.pos(0) = ((float)x + 0.5_rt) * dx;
+        particle.pos(1) = ((float)y + 0.5_rt) * dy;
+    } else if (ic_type == ExaEpi::ICType::UrbanPop) {
+        particle.pos(0) = (float)x * dx + min_pos_x;
+        particle.pos(1) = (float)y * dy + min_pos_y;
+    } else {
+        Abort("ic_type not supported");
+    }
+}
+
 
 /*! \brief Initialize agents for ExaEpi::ICType::Census
-
  *  + Define and allocate the following integer MultiFabs:
  *    + num_families: number of families; has 7 components, each component is the
  *      number of families of size (component+1)
@@ -321,6 +111,8 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
                                        DemographicData& demo        /*!< Demographic data */ )
 {
     BL_PROFILE("initAgentsCensus");
+
+    ic_type = ExaEpi::ICType::Census;
 
     const Box& domain = Geom(0).Domain();
 
@@ -576,8 +368,7 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
                     }
                 }
 
-                agent.pos(0) = (i + 0.5_rt)*dx[0];
-                agent.pos(1) = (j + 0.5_rt)*dx[1];
+                set_particle_pos(agent, i, j, dx[0], dx[1]);
                 agent.id()  = pid+ip;
                 agent.cpu() = myproc;
 
@@ -616,6 +407,10 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
 */
 void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
     BL_PROFILE("initAgentsUrbanPop");
+
+    ic_type = ExaEpi::ICType::UrbanPop;
+    min_pos_x = ParticleGeom(0).ProbLo()[0];
+    min_pos_y = ParticleGeom(0).ProbLo()[1];
 
     // only a single level
     auto& particles  = GetParticles(0);
@@ -668,8 +463,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
                 agent.cpu() = MyProc();
-                agent.pos(0) = block_group.latitude;
-                agent.pos(1) = block_group.longitude;
+                set_particle_pos(agent, x, y, dx[0], dx[1]);
 
                 status_ptr[pi] = 0;
                 counter_ptr[pi] = 0.0_rt;
@@ -698,11 +492,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 work_j_ptr[pi] = y;
                 // workgroups should be of size 20
                 workgroup_ptr[pi] = 0;
-                if (age < 5) school_ptr[pi] = 5;
-                else if (age < 7) school_ptr[pi] = 4;
-                else if (age < 11) school_ptr[pi] = 3;
-                else if (age < 14) school_ptr[pi] = 2;
-                else if (age < 19) school_ptr[pi] = 1;
+                if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
+                else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
 
                 pi++;
@@ -718,7 +509,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
 
     For each agent, set its position to a random one near its current position
 */
-void AgentContainer::moveAgentsRandomWalk ()
+/*void AgentContainer::moveAgentsRandomWalk ()
 {
     BL_PROFILE("AgentContainer::moveAgentsRandomWalk");
 
@@ -748,7 +539,7 @@ void AgentContainer::moveAgentsRandomWalk ()
             });
         }
     }
-}
+}*/
 
 /*! \brief Move agents to work
 
@@ -783,8 +574,7 @@ void AgentContainer::moveAgentsToWork ()
             [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
                 ParticleType& p = pstruct[ip];
-                p.pos(0) = (work_i_ptr[ip] + 0.5_prt)*dx[0];
-                p.pos(1) = (work_j_ptr[ip] + 0.5_prt)*dx[1];
+                set_particle_pos(p, work_i_ptr[ip], work_j_ptr[ip], dx[0], dx[1]);
             });
         }
     }
@@ -825,8 +615,7 @@ void AgentContainer::moveAgentsToHome ()
             [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
                 ParticleType& p = pstruct[ip];
-                p.pos(0) = (home_i_ptr[ip] + 0.5_prt)*dx[0];
-                p.pos(1) = (home_j_ptr[ip] + 0.5_prt)*dx[1];
+                set_particle_pos(p, home_i_ptr[ip], home_j_ptr[ip], dx[0], dx[1]);
             });
         }
     }

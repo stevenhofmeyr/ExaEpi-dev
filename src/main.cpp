@@ -167,28 +167,23 @@ void runAgent ()
 
     {
         BL_PROFILE_REGION("Initialization");
-        switch (params.ic_type) {
-            case ICType::Demo:
-                pc.initAgentsDemo(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
-                break;
-            case ICType::Census:
-                pc.initAgentsCensus(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
-                ExaEpi::Initialization::read_workerflow(demo, params, unit_mf, comm_mf, pc);
-                if (params.initial_case_type == "file") {
-                    ExaEpi::Initialization::setInitialCasesFromFile(pc, unit_mf, FIPS_mf, comm_mf, cases, demo);
-                } else {
-                    ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
-                }
-                break;
-            case ICType::UrbanPop:
-                pc.initAgentsUrbanPop(urban_pop);
-                break;
+        if (params.ic_type == ICType::Census) {
+            pc.initAgentsCensus(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
+            ExaEpi::Initialization::read_workerflow(demo, params, unit_mf, comm_mf, pc);
+            if (params.initial_case_type == "file") {
+                ExaEpi::Initialization::setInitialCasesFromFile(pc, unit_mf, FIPS_mf, comm_mf, cases, demo);
+            } else {
+                ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
+            }
+        } else if (params.ic_type == ICType::UrbanPop) {
+            pc.initAgentsUrbanPop(urban_pop);
+            //ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
         }
     }
 
     ParallelContext::BarrierAll();
     pc.writeAgentsFile("agents.csv");
-    if (params.ic_type == ICType::UrbanPop) return;
+    //if (params.ic_type == ICType::UrbanPop) return;
 
     int  step_of_peak = 0;
     Long num_infected_peak = 0;
@@ -217,8 +212,10 @@ void runAgent ()
                 ExaEpi::IO::writeFIPSData(pc, unit_mf, FIPS_mf, comm_mf, demo, params.aggregated_diag_prefix, i);
             }
 
+            Print() << "update status\n";
             // Update agents' disease status
             pc.updateStatus(disease_stats);
+            ParallelContext::BarrierAll();
 
             auto counts = pc.getTotals();
             if (counts[1] > num_infected_peak) {
@@ -310,13 +307,18 @@ void runAgent ()
                 pc.shelterStop();
             }
 
+            ParallelContext::BarrierAll(); Print() << "morning commute\n";
             // Typical day
             pc.morningCommute(mask_behavior);
+            ParallelContext::BarrierAll(); Print() << "interact day\n";
             pc.interactDay(mask_behavior);
+            ParallelContext::BarrierAll(); Print() << "evening commute\n";
             pc.eveningCommute(mask_behavior);
+            ParallelContext::BarrierAll(); Print() << "interact evening\n";
             pc.interactEvening(mask_behavior);
+            ParallelContext::BarrierAll(); Print() << "interact night\n";
             pc.interactNight(mask_behavior);
-
+            ParallelContext::BarrierAll(); Print() << "infect agents\n";
             // Infect agents based on their interactions
             pc.infectAgents();
 
