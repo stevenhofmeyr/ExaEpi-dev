@@ -43,18 +43,18 @@ void randomShuffle (std::vector<int>& vec /*!< Vector to be shuffled */)
     std::shuffle(vec.begin(), vec.end(), g);
 }
 
-void AgentContainer::set_particle_pos(ParticleType &particle, int x, int y, float dx, float dy) {
-    if (ic_type == ExaEpi::ICType::Census) {
-        particle.pos(0) = ((float)x + 0.5_rt) * dx;
-        particle.pos(1) = ((float)y + 0.5_rt) * dy;
-    } else if (ic_type == ExaEpi::ICType::UrbanPop) {
-        particle.pos(0) = (float)x * dx + min_pos_x;
-        particle.pos(1) = (float)y * dy + min_pos_y;
+AMREX_GPU_DEVICE AMREX_FORCE_INLINE
+void set_particle_pos(Real &p1, Real &p2, int x, int y, Real dx, Real dy, short _ic_type, Real min_pos_x, Real min_pos_y) {
+    if (_ic_type == ExaEpi::ICType::Census) {
+        p1 = ((Real)x + 0.5_rt) * dx;
+        p2 = ((Real)y + 0.5_rt) * dy;
+    } else if (_ic_type == ExaEpi::ICType::UrbanPop) {
+        p1 = (Real)x * dx + min_pos_x;
+        p2 = (Real)y * dy + min_pos_y;
     } else {
         Abort("ic_type not supported");
     }
 }
-
 
 /*! \brief Initialize agents for ExaEpi::ICType::Census
  *  + Define and allocate the following integer MultiFabs:
@@ -368,9 +368,10 @@ void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number 
                     }
                 }
 
-                set_particle_pos(agent, i, j, dx[0], dx[1]);
                 agent.id()  = pid+ip;
                 agent.cpu() = myproc;
+                agent.pos(0) = ((Real)i + 0.5_rt) * dx[0];
+                agent.pos(1) = ((Real)j + 0.5_rt) * dx[1];
 
                 status_ptr[ip] = 0;
                 counter_ptr[ip] = 0.0_rt;
@@ -420,7 +421,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
         box_block_groups[block_group.box_i].push_back(block_group);
     }
     int tot_np = 0;
-    amrex::RandomEngine engine;
+    Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
     // don't tile here because the UrbanPop data is stored in a non-tiled, per box basis.
     for (MFIter mfi = MakeMFIter(0, false); mfi.isValid(); ++mfi) {
         int box_i = mfi.index();
@@ -435,7 +436,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
         }
         ptile.resize(tot_pop);
         auto dx = ParticleGeom(0).CellSizeArray();
-        auto &aos = ptile.GetArrayOfStructs();
+        auto aos = &ptile.GetArrayOfStructs()[0];
         auto &soa = ptile.GetStructOfArrays();
         auto status_ptr = soa.GetIntData(IntIdx::status).data();
         auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
@@ -450,20 +451,24 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
 
-        int pi = 0;
+        int my_proc = MyProc();
+        int block_pi = 0;
         for (auto &block_group : block_groups) {
             tot_np += block_group.people.size();
             int x = block_group.x;
             int y = block_group.y;
-            int current_h_id = -1;
             // set number of nbhoods to get each nbhood as close to 500 as possible
             int num_nbhoods = std::max(std::round((double)block_group.people.size() / 500), 1.0);
-            int nborhood = Random_int(num_nbhoods, engine);
-            for (auto &person : block_group.people) {
+            auto people = &block_group.people[0];
+            amrex::ParallelForRNG(block_group.people.size(),
+              [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
+                auto &person = people[i];
+                int pi = block_pi + i;
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
-                agent.cpu() = MyProc();
-                set_particle_pos(agent, x, y, dx[0], dx[1]);
+                agent.cpu() = my_proc;
+                agent.pos(0) = (Real)x * dx[0] + _min_pos_x;
+                agent.pos(1) = (Real)y * dx[1] + _min_pos_y;
 
                 status_ptr[pi] = 0;
                 counter_ptr[pi] = 0.0_rt;
@@ -481,10 +486,9 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 home_i_ptr[pi] = x;
                 home_j_ptr[pi] = y;
                 // choose new nbhood for next household
-                if (current_h_id != person.h_id) {
-                    nborhood = Random_int(num_nbhoods, engine);
-                    current_h_id = person.h_id;
-                }
+                int nborhood;
+                if (i == 0 || (family_ptr[pi] != family_ptr[pi - 1])) nborhood = Random_int(num_nbhoods, engine);
+                else nborhood = nborhood_ptr[pi - 1];
                 nborhood_ptr[pi] = nborhood;
                 // FIXME: these values should be obtained from UrbanPop data
                 // FIXME: set the work location randomly at the commute distance
@@ -495,9 +499,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
-
-                pi++;
-            }
+            });
+            block_pi += block_group.people.size();
         }
         //AllPrint() << MyProc() << ": box " << bx << " box_i " << box_i << " population " << ptile.size() << "\n";
     }
@@ -570,11 +573,13 @@ void AgentContainer::moveAgentsToWork ()
             auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
 
-            amrex::ParallelFor( np,
-            [=] AMREX_GPU_DEVICE (int ip) noexcept
+            short _ic_type = ic_type;
+            Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
+
+            amrex::ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
                 ParticleType& p = pstruct[ip];
-                set_particle_pos(p, work_i_ptr[ip], work_j_ptr[ip], dx[0], dx[1]);
+                set_particle_pos(p.pos(0), p.pos(1), work_i_ptr[ip], work_j_ptr[ip], dx[0], dx[1], _ic_type, _min_pos_x, _min_pos_y);
             });
         }
     }
@@ -610,12 +615,13 @@ void AgentContainer::moveAgentsToHome ()
             auto& soa = ptile.GetStructOfArrays();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            short _ic_type = ic_type;
+            Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
 
-            amrex::ParallelFor( np,
-            [=] AMREX_GPU_DEVICE (int ip) noexcept
+            amrex::ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
             {
                 ParticleType& p = pstruct[ip];
-                set_particle_pos(p, home_i_ptr[ip], home_j_ptr[ip], dx[0], dx[1]);
+                set_particle_pos(p.pos(0), p.pos(1), home_i_ptr[ip], home_j_ptr[ip], dx[0], dx[1], _ic_type, _min_pos_x, _min_pos_y);
             });
         }
     }

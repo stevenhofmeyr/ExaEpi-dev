@@ -223,9 +223,6 @@ protected:
         std::map<std::string,IntModel*>::const_iterator it(m_interactions.find(a_mod_name));
         return (it != m_interactions.end());
     }
-
-    void set_particle_pos(ParticleType &particle, int x, int y, float dx, float dy);
-
 };
 
 using AgentIterator = typename AgentContainer::ParIterType;
