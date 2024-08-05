@@ -23,45 +23,45 @@ namespace ExaEpi
 namespace Initialization
 {
 
-    /*! \brief Read worker flow data from file and set work location for agents
+/*! \brief Read worker flow data from file and set work location for agents
 
-     *  Read in worker flow (home and work) data from a given binary file:
-     *  + Initialize and allocate space for the worker-flow matrix with #DemographicData::Nunit rows
-     *    and columns; note that only those rows are allocated where part of the unit resides on this
-     *    processor.
-     *  + Read worker flow data from #ExaEpi::TestParams::workerflow_filename: it is a binary file that
-     *    contains 3 x (number of work patthers) unsigned integer data. The 3 integers are: from, to,
-     *    and the number of workers with this from and to. The from and to are the IDs from the
-     *    first column of the census data file (#DemographicData::myID).
-     *  + For each work pattern: Read in the from, to, and number. If both the from and to ID values
-     *    correspond to units that are on this processor, say, i and j, then set the worker-flow
-     *    matrix element at [i][j] to the number. Note that DemographicData::myIDtoUnit() maps from
-     *    ID value to unit number (from -> i, to -> j).
-     *  + Comvert values in each row to row-wise cumulative values.
-     *  + Scale these values to account for ~2% of people of vacation/sick leave.
-     *  + For each agent (particle) in each box/tile on each processor:
-     *    + Get the home (from) unit of the agent from its home cell index (i,j) and the input argument
-     *      unit_mf.
-     *    + Compute the number of workers in the "from" unit as 58.6% of the total population. If this
-     *      number if greater than zero, continue with the following steps.
-     *    + Find age group of this agent, and if it is either 18-29 or 30-64, continue with the
-     *      following steps.
-     *    + Assign a random work destination unit by picking a random number and placing it in the
-     *      row-wise cumulative numbers in the "from" row of the worker flow matrix.
-     *    + If the "to" unit is same as the "from" unit, then set the work community number same as
-     *      the home community number witn 25% probability and some other random community number in
-     *      the same unit with 75% probability.
-     *    + Set the work location indices (i,j) for the agent to the values corresponding to this
-     *      computed work community.
-     *    + Find the number of workgroups in the work location unit, where one workgroup consists of
-     *      20 workers; then assign a random workgroup to this agent.
-    */
-    void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
-                          const TestParams& params,     /*!< Test parameters */
-                          const iMultiFab& unit_mf,     /*!< MultiFab with unit number at each grid cell */
-                          const iMultiFab& comm_mf,     /*!< MultiFab with community number at each grid cell */
-                          AgentContainer& pc            /*!< Agent container (particle container) */ )
-    {
+    *  Read in worker flow (home and work) data from a given binary file:
+    *  + Initialize and allocate space for the worker-flow matrix with #DemographicData::Nunit rows
+    *    and columns; note that only those rows are allocated where part of the unit resides on this
+    *    processor.
+    *  + Read worker flow data from #ExaEpi::TestParams::workerflow_filename: it is a binary file that
+    *    contains 3 x (number of work patthers) unsigned integer data. The 3 integers are: from, to,
+    *    and the number of workers with this from and to. The from and to are the IDs from the
+    *    first column of the census data file (#DemographicData::myID).
+    *  + For each work pattern: Read in the from, to, and number. If both the from and to ID values
+    *    correspond to units that are on this processor, say, i and j, then set the worker-flow
+    *    matrix element at [i][j] to the number. Note that DemographicData::myIDtoUnit() maps from
+    *    ID value to unit number (from -> i, to -> j).
+    *  + Comvert values in each row to row-wise cumulative values.
+    *  + Scale these values to account for ~2% of people of vacation/sick leave.
+    *  + For each agent (particle) in each box/tile on each processor:
+    *    + Get the home (from) unit of the agent from its home cell index (i,j) and the input argument
+    *      unit_mf.
+    *    + Compute the number of workers in the "from" unit as 58.6% of the total population. If this
+    *      number if greater than zero, continue with the following steps.
+    *    + Find age group of this agent, and if it is either 18-29 or 30-64, continue with the
+    *      following steps.
+    *    + Assign a random work destination unit by picking a random number and placing it in the
+    *      row-wise cumulative numbers in the "from" row of the worker flow matrix.
+    *    + If the "to" unit is same as the "from" unit, then set the work community number same as
+    *      the home community number witn 25% probability and some other random community number in
+    *      the same unit with 75% probability.
+    *    + Set the work location indices (i,j) for the agent to the values corresponding to this
+    *      computed work community.
+    *    + Find the number of workgroups in the work location unit, where one workgroup consists of
+    *      20 workers; then assign a random workgroup to this agent.
+*/
+void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
+                      const TestParams& params,     /*!< Test parameters */
+                      const iMultiFab& unit_mf,     /*!< MultiFab with unit number at each grid cell */
+                      const iMultiFab& comm_mf,     /*!< MultiFab with community number at each grid cell */
+                      AgentContainer& pc            /*!< Agent container (particle container) */ )
+{
 
     /* Allocate worker-flow matrix, only from units with nighttime
      communities on this processor (Unit_on_proc[] flag) */

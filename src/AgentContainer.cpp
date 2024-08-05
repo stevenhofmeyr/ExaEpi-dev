@@ -421,7 +421,6 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
         box_block_groups[block_group.box_i].push_back(block_group);
     }
     int tot_np = 0;
-    Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
     // don't tile here because the UrbanPop data is stored in a non-tiled, per box basis.
     for (MFIter mfi = MakeMFIter(0, false); mfi.isValid(); ++mfi) {
         int box_i = mfi.index();
@@ -457,6 +456,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
             tot_np += block_group.people.size();
             int x = block_group.x;
             int y = block_group.y;
+            Real px = (Real)x * dx[0] + min_pos_x;
+            Real py = (Real)y * dx[1] + min_pos_y;
             // set number of nbhoods to get each nbhood as close to 500 as possible
             int num_nbhoods = std::max(std::round((double)block_group.people.size() / 500), 1.0);
             auto people = &block_group.people[0];
@@ -467,8 +468,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
                 agent.cpu() = my_proc;
-                agent.pos(0) = (Real)x * dx[0] + _min_pos_x;
-                agent.pos(1) = (Real)y * dx[1] + _min_pos_y;
+                agent.pos(0) = px;
+                agent.pos(1) = py;
 
                 status_ptr[pi] = 0;
                 counter_ptr[pi] = 0.0_rt;

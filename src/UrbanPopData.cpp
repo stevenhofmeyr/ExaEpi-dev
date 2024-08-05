@@ -133,7 +133,7 @@ static Vector<BlockGroup> read_block_groups_file(const string &fname) {
     return block_groups;
 }
 
-void UrbanPopData::construct_geom(const string &fname, Geometry &geom, DistributionMapping &dm, BoxArray &ba) {
+void UrbanPopData::construct_geom (const string &fname, Geometry &geom, DistributionMapping &dm, BoxArray &ba) {
     auto all_block_groups = read_block_groups_file(fname);
     float min_lat = 1000;
     float min_long = 1000;
@@ -227,7 +227,7 @@ void UrbanPopData::construct_geom(const string &fname, Geometry &geom, Distribut
     }
 }
 
-static std::pair<int, double> get_all_load_balance(long num) {
+static std::pair<int, double> get_all_load_balance (long num) {
     int all = num;
     ParallelDescriptor::ReduceIntSum(all);
     int max_num = num;
@@ -258,6 +258,9 @@ void UrbanPopData::InitFromFile (const string& fname, Geometry &geom, Distributi
     for (auto &block_group : block_groups) {
         my_num_agents += block_group.people.size();
         block_group.read_people(f);
+        num_employed += block_group.num_employed;
+        num_military += block_group.num_military;
+        num_households += block_group.num_households;
     }
     //AllPrint() << "<" << MyProc() << ">: " << my_num_agents << " population in " << block_groups.size() << " block groups\n";
     int my_num_block_groups = block_groups.size();
