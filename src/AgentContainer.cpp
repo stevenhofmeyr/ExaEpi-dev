@@ -487,19 +487,31 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 home_i_ptr[pi] = x;
                 home_j_ptr[pi] = y;
                 // choose new nbhood for next household
-                int nborhood;
-                if (i == 0 || (family_ptr[pi] != family_ptr[pi - 1])) nborhood = Random_int(num_nbhoods, engine);
-                else nborhood = nborhood_ptr[pi - 1];
+                int nborhood = -1;
+                // set this randomly only for the first position in the family - a second loop through will set the other values
+                // this approach is needed for GPU parallelism
+                if (i == 0 || (people[i].h_id != people[i - 1].h_id)) nborhood = Random_int(num_nbhoods, engine);
                 nborhood_ptr[pi] = nborhood;
                 // FIXME: these values should be obtained from UrbanPop data
-                // FIXME: set the work location randomly at the commute distance
-                work_i_ptr[pi] = x;
-                work_j_ptr[pi] = y;
-                // workgroups should be of size 20
+                work_i_ptr[pi] = -1;
+                work_j_ptr[pi] = -1;
                 workgroup_ptr[pi] = 0;
+
                 if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
+            });
+            // loop to set the household neighborhoods
+            amrex::ParallelFor(block_group.people.size(), [=] AMREX_GPU_DEVICE (int i) noexcept {
+                int pi = block_pi + i;
+                if (nborhood_ptr[pi] == -1) {
+                    for (int j = pi - 1; j >= 0; j--) {
+                        if (nborhood_ptr[j] != -1) {
+                            nborhood_ptr[pi] = nborhood_ptr[j];
+                            break;
+                        }
+                    }
+                }
             });
             block_pi += block_group.people.size();
         }
@@ -1229,11 +1241,11 @@ void AgentContainer::writeAgentsFile (const string &fname) {
                 communities[home_i_ptr[i]][home_j_ptr[i]]++;
             }
         }
-        for (int x = 0; x < max_x; x++) {
+        /*for (int x = 0; x < max_x; x++) {
             for (int y = 0; y < max_y; y++) {
-                //AllPrint() << "x,y " << x << "," << y << " pop " << communities[x][y] << "\n";
+                AllPrint() << "x,y " << x << "," << y << " pop " << communities[x][y] << "\n";
             }
-        }
+        }*/
     }
     outfs.close();
 }

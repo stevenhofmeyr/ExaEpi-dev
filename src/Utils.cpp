@@ -44,20 +44,20 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     if (ic_type == "census") {
         params.ic_type = ICType::Census;
         pp.get("census_filename", params.census_filename);
-        pp.get("workerflow_filename", params.workerflow_filename);
-        pp.get("initial_case_type", params.initial_case_type);
-        if (params.initial_case_type == "file") {
-            pp.get("case_filename", params.case_filename);
-        } else if (params.initial_case_type == "random") {
-            pp.get("num_initial_cases", params.num_initial_cases);
-        } else {
-            amrex::Abort("initial case type not recognized");
-        }
     } else if (ic_type == "urbanpop") {
         params.ic_type = ICType::UrbanPop;
         pp.get("urbanpop_filename", params.urbanpop_filename);
     } else {
         amrex::Abort("ic type not recognized");
+    }
+    pp.get("workerflow_filename", params.workerflow_filename);
+    pp.get("initial_case_type", params.initial_case_type);
+    if (params.initial_case_type == "file") {
+        pp.get("case_filename", params.case_filename);
+    } else if (params.initial_case_type == "random") {
+        pp.get("num_initial_cases", params.num_initial_cases);
+    } else {
+        amrex::Abort("initial case type not recognized");
     }
 
     params.aggregated_diag_int = -1;
