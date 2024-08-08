@@ -8,6 +8,7 @@ import numpy as np
 import time
 import argparse
 import geopandas
+import process_lodes7
 
 
 PUMS_ID_LEN = 14
@@ -167,7 +168,7 @@ static std::vector<string> split_string(const string &s, char delim) {
     print("Wrote", len(df.columns), "fields to", hdr_fname)
 
 
-def process_feather_files(fnames, out_fname, geoid_locs_map):
+def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
     global PUMS_ID_LEN
     global NAICS_LEN
 
@@ -228,6 +229,10 @@ def process_feather_files(fnames, out_fname, geoid_locs_map):
         df.insert(df.columns.get_loc("latitude") + 1, "longitude", float(0))
         df.longitude = df.longitude.astype("float32")
 
+    if lodes_flows:
+        df.insert(df.columns.get_loc("longitude") + 1, "w_geoid", float(0))
+        df.w_geoid = df.w_geoid.astype("int64")
+
     print_header(df)
 
     t = time.time()
@@ -238,6 +243,11 @@ def process_feather_files(fnames, out_fname, geoid_locs_map):
         df["latitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
         df["longitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
         print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
+
+    if lodes_flows:
+        print("Setting work GEOIDs for data")
+        df["w_geoid"] = process_lodes7.get_prob_work_locations(df, lodes_flows)
+
 
     print("Fields are:\n", df.dtypes, sep="")
 
@@ -296,6 +306,7 @@ if __name__ == "__main__":
     parser.add_argument("--shape_files_dir", "-s", nargs="+",
                         help="Directories for census block group shape files. Available from\n" + \
                         "https://www.census.gov/cgi-bin/geo/shapefiles/index.php?year=2010&layergroup=Block+Groups")
+    parser.add_argument("--lodes", "-l", help="LODES7 file")
     args = parser.parse_args()
 
     geoid_locs_map = {}
@@ -303,6 +314,11 @@ if __name__ == "__main__":
         process_census_bg_shape_file(args.shape_files_dir, geoid_locs_map)
         print("GEOID to locations map contains", len(geoid_locs_map), "entries")
 
-    process_feather_files(args.files, args.output, geoid_locs_map)
+    lodes_flows = {}
+    if args.lodes is not None:
+        lodes_flows = process_lodes7.get_lodes_flows(args.lodes)
+        print("Obtained workerflow data from LODES7 file", args.lodes)
+
+    process_feather_files(args.files, args.output, geoid_locs_map, lodes_flows)
 
     print("Processed", len(args.files), "files in %.2f s" % (time.time() - t))

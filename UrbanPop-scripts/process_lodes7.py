@@ -75,7 +75,7 @@ def get_lodes_flows(lodes_fname):
         with open(flows_fname, "wb") as f:
             pickle.dump(flows, f)
     return flows
-    
+
 
 @timer
 def load_urbanpop(fname):
@@ -88,25 +88,26 @@ def load_urbanpop(fname):
     agents_employed = len(agents_df[(agents_df.pr_emp_stat == 2)]) + agents_military
     print("Total employed, according to UrbanPop:", agents_employed,
           "with", perc_str(agents_military, agents_employed), "in military")
-    return agents_df, agents_employed
+    return agents_df
 
 
 @timer
-def get_exact_work_locations(agents_df, agents_employed, flows):
+def get_exact_work_locations(agents_df, flows):
     print("Getting exact work locations from LODES data")
-    
+    agents_employed = len(agents_df[(agents_df.pr_emp_stat == 2)]) + len(agents_df[(agents_df.pr_emp_stat == 3)])
     tot_flow = 0
-    for h_block_group, w_block_groups in flows.items():
+    for _, w_block_groups in flows.items():
         tot_flow += sum(w_block_groups.values())
-    print("Total employed according to LODES", tot_flow)
-    
+
+    print("Total employed according to LODES", tot_flow, sum([sum(x) for x in flows.values()]))
+
     num_agents_assigned = 0
     num_exhausted = 0
     num_not_found = 0
     num_out_of_state = 0
     missing_h_geoids = {}
     num_same_work_home = 0
-    for index, agent in agents_df.iterrows():
+    for _, agent in agents_df.iterrows():
         if agent.pr_emp_stat in [2, 3]:
             # find flows
             agent_flows = flows.get(str(agent.geoid))
@@ -142,8 +143,8 @@ def get_exact_work_locations(agents_df, agents_employed, flows):
           perc_str(num_same_work_home, num_agents_assigned))
 
     tot_leftover_flow = 0
-    for h_block_group, w_block_groups in flows.items():
-        for w_block_group, num_jobs in w_block_groups.items():
+    for _, w_block_groups in flows.items():
+        for _, num_jobs in w_block_groups.items():
             tot_leftover_flow += num_jobs
     print("Number employed leftover", perc_str(tot_leftover_flow, tot_flow))
 
@@ -158,36 +159,34 @@ def get_w_geoid(agent, flow_probs):
         else:
             print("WARNING: could not find home GEOID", agent.geoid)
     return -1
-    
 
-def out_of_state(agent):
-    if agent.w_geoid == -1:
+
+def out_of_state(w_geoid):
+    if w_geoid == -1:
         return False
-    if str(agent.w_geoid)[:2] != "35":
+    if str(w_geoid)[:2] != "35":
         return True
     return False
 
-    
-@timer    
-def get_prob_work_locations(agents_df, agents_employed, flows):
+
+@timer
+def get_prob_work_locations(agents_df, flows):
     print("Getting probabilistic work locations from LODES data")
-    
-    tot_flow = 0
-    flow_probs = {}        
+    agents_employed = len(agents_df[(agents_df.pr_emp_stat == 2)]) + len(agents_df[(agents_df.pr_emp_stat == 3)])
+    tot_flow = sum([sum(x.values()) for x in flows.values()])
+    flow_probs = {}
     for h_block_group, w_block_groups in flows.items():
         sum_vals = sum(w_block_groups.values())
-        tot_flow += sum_vals
         probs = [float(x) / sum_vals for x in w_block_groups.values()]
         flow_probs[h_block_group] = [list(w_block_groups.keys()), probs]
     print("Total employed according to LODES", tot_flow)
 
-    np.random.seed(29)
-    agents_df["w_geoid"] = \
-        agents_df.apply(lambda agent: get_w_geoid(agent, flow_probs), axis=1)
+    #np.random.seed(29)
+    agents_w_geoids = agents_df.apply(lambda agent: get_w_geoid(agent, flow_probs), axis=1)
 
-    num_agents_assigned = sum(agents_df.w_geoid != -1)
-    num_same_work_home = sum(agents_df.w_geoid == agents_df.geoid)
-    num_out_of_state = sum(agents_df.apply(lambda agent: out_of_state(agent), axis=1))
+    num_agents_assigned = sum(agents_w_geoids != -1)
+    num_same_work_home = sum(agents_w_geoids == agents_df.geoid)
+    num_out_of_state = sum(agents_w_geoids.apply(lambda w_geoid: out_of_state(w_geoid)))
 
     print("Set work GEOIDs for", perc_str(num_agents_assigned, agents_employed),
           "agents, with", perc_str(num_out_of_state, num_agents_assigned),
@@ -195,19 +194,20 @@ def get_prob_work_locations(agents_df, agents_employed, flows):
     print("Number of agents with same work and home locations",
           perc_str(num_same_work_home, num_agents_assigned))
 
-    agents_df.to_csv("agents_with_work.csv", index=True)
-              
+    return agents_w_geoids
+
 
 @timer
 def main():
     flows = get_lodes_flows(sys.argv[1])
     # Now read in the urbanpop data csv file, and for each agent, add a work destination,
     # if appropriate
-    agents_df, agents_employed = load_urbanpop(sys.argv[2])
+    agents_df = load_urbanpop(sys.argv[2])
     #agents_df = agents_df.head(100000)
-    #get_exact_work_locations(agents_df, agents_employed, flows)
-    get_prob_work_locations(agents_df, agents_employed, flows)
+    #get_exact_work_locations(agents_df, flows)
+    agents_w_geoids = get_prob_work_locations(agents_df, flows)
+    agents_w_geoids.to_csv("agents_w_geoids.csv", index=True)
 
-    
+
 if __name__ == "__main__":
     main()

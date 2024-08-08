@@ -176,7 +176,7 @@ void runAgent ()
                 ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
             }
         } else if (params.ic_type == ICType::UrbanPop) {
-            ExaEpi::Initialization::read_2019_workerflow(params);
+            //ExaEpi::Initialization::read_2019_workerflow(params);
             pc.initAgentsUrbanPop(urban_pop);
             //ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
         }
