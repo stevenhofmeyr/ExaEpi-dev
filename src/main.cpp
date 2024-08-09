@@ -153,11 +153,6 @@ void runAgent ()
         }
     }
 
-    iMultiFab num_residents(ba, dm, 6, 0);
-    iMultiFab unit_mf(ba, dm, 1, 0);
-    iMultiFab FIPS_mf(ba, dm, 2, 0);
-    iMultiFab comm_mf(ba, dm, 1, 0);
-
     MultiFab disease_stats(ba, dm, 4, 0);
     disease_stats.setVal(0);
     MultiFab mask_behavior(ba, dm, 1, 0);
@@ -168,12 +163,12 @@ void runAgent ()
     {
         BL_PROFILE_REGION("Initialization");
         if (params.ic_type == ICType::Census) {
-            pc.initAgentsCensus(num_residents, unit_mf, FIPS_mf, comm_mf, demo);
-            ExaEpi::Initialization::read_workerflow(demo, params, unit_mf, comm_mf, pc);
+            pc.initAgentsCensus(ba, dm, demo);
+            ExaEpi::Initialization::read_workerflow(demo, params, pc);
             if (params.initial_case_type == "file") {
-                ExaEpi::Initialization::setInitialCasesFromFile(pc, unit_mf, FIPS_mf, comm_mf, cases, demo);
+                ExaEpi::Initialization::setInitialCasesFromFile(pc, cases, demo);
             } else {
-                ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
+                ExaEpi::Initialization::setInitialCasesRandom(pc, params.num_initial_cases, demo);
             }
         } else if (params.ic_type == ICType::UrbanPop) {
             pc.initAgentsUrbanPop(urban_pop);
@@ -205,11 +200,11 @@ void runAgent ()
             amrex::Print() << "Simulating day " << i << "\n";
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
-                ExaEpi::IO::writePlotFile(pc, num_residents, unit_mf, FIPS_mf, comm_mf, cur_time, i);
+                ExaEpi::IO::writePlotFile(pc, cur_time, i);
             }
 
             if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
-                ExaEpi::IO::writeFIPSData(pc, unit_mf, FIPS_mf, comm_mf, demo, params.aggregated_diag_prefix, i);
+                ExaEpi::IO::writeFIPSData(pc, demo, params.aggregated_diag_prefix, i);
             }
 
             Print() << "update status\n";
@@ -341,10 +336,10 @@ void runAgent ()
     amrex::Print() << "\n \n";
 
     if (params.plot_int > 0) {
-        ExaEpi::IO::writePlotFile(pc, num_residents, unit_mf, FIPS_mf, comm_mf, cur_time, params.nsteps);
+        ExaEpi::IO::writePlotFile(pc, cur_time, params.nsteps);
     }
 
     if ((params.aggregated_diag_int > 0) && (params.nsteps % params.aggregated_diag_int == 0)) {
-        ExaEpi::IO::writeFIPSData(pc, unit_mf, FIPS_mf, comm_mf, demo, params.aggregated_diag_prefix, params.nsteps);
+        ExaEpi::IO::writeFIPSData(pc, demo, params.aggregated_diag_prefix, params.nsteps);
     }
 }

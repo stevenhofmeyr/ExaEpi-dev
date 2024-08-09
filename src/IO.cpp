@@ -40,10 +40,6 @@ namespace IO
     + Write agents to file - see AgentContainer::WritePlotFile().
 */
 void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container */
-                    const iMultiFab& /*num_residents*/,
-                    const iMultiFab& unit_mf,   /*!< MultiFab with unit number of each community */
-                    const iMultiFab& FIPS_mf,   /*!< MultiFab with FIPS code and census tract ID */
-                    const iMultiFab& comm_mf,   /*!< MultiFab of community number */
                     const Real cur_time,        /*!< current time */
                     const int step              /*!< Current step */) {
     amrex::Print() << "Writing plotfile \n";
@@ -53,9 +49,9 @@ void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container 
     output_mf.setVal(0.0);
     pc.generateCellData(output_mf);
 
-    amrex::Copy(output_mf, unit_mf, 0, 5, 1, 0);
-    amrex::Copy(output_mf, FIPS_mf, 0, 6, 2, 0);
-    amrex::Copy(output_mf, comm_mf, 0, 8, 1, 0);
+    amrex::Copy(output_mf, pc.unit_mf, 0, 5, 1, 0);
+    amrex::Copy(output_mf, pc.FIPS_mf, 0, 6, 2, 0);
+    amrex::Copy(output_mf, pc.comm_mf, 0, 8, 1, 0);
 
     amrex::Vector<int> write_real_comp;
     amrex::Vector<int> write_int_comp;
@@ -90,9 +86,6 @@ void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container 
     + Sum across all processors and write to file.
 */
 void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) container */
-                    const iMultiFab& unit_mf,     /*!< MultiFab with unit number of each community */
-                    const iMultiFab& /*FIPS_mf*/,
-                    const iMultiFab& /*comm_mf*/,
                     const DemographicData& demo,  /*!< Demographic data */
                     const std::string& prefix,    /*!< Filename prefix */
                     const int step                /*!< Current step */) {
@@ -115,7 +108,7 @@ void writeFIPSData (const AgentContainer& agents, /*!< Agents (particle) contain
         {
             for (MFIter mfi(mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
             {
-                auto unit_arr = unit_mf[mfi].array();
+                auto unit_arr = agents.unit_mf[mfi].array();
                 auto cell_data_arr = mf[mfi].array();
 
                 auto bx = mfi.tilebox();

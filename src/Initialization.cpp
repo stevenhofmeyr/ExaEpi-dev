@@ -58,8 +58,6 @@ namespace Initialization
 */
 void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
                       const TestParams& params,     /*!< Test parameters */
-                      const iMultiFab& unit_mf,     /*!< MultiFab with unit number at each grid cell */
-                      const iMultiFab& comm_mf,     /*!< MultiFab with community number at each grid cell */
                       AgentContainer& pc            /*!< Agent container (particle container) */ )
 {
 
@@ -136,7 +134,7 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
 #ifdef AMREX_USE_OMP
 #pragma omp parallel if (Gpu::notInLaunchRegion())
 #endif
-    for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+    for (MFIter mfi(pc.unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
     {
         auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
         auto& soa = agents_tile.GetStructOfArrays();
@@ -149,8 +147,8 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto np = soa.numParticles();
 
-        auto unit_arr = unit_mf[mfi].array();
-        auto comm_arr = comm_mf[mfi].array();
+        auto unit_arr = pc.unit_mf[mfi].array();
+        auto comm_arr = pc.comm_mf[mfi].array();
 
         auto Population = demo.Population_d.data();
         auto Start = demo.Start_d.data();
@@ -223,10 +221,6 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
         + Sum up number of infected agents over all processors and return that value.
     */
     int infect_random_community ( AgentContainer& pc, /*!< Agent container (particle container)*/
-                                  const amrex::iMultiFab& unit_mf, /*!< MultiFab with unit number at each grid cell */
-                                  const amrex::iMultiFab& /*FIPS_mf*/, /*!< FIPS code (component 0) and
-                                                                            census tract number (component 1) */
-                                  const amrex::iMultiFab& comm_mf, /*!< MultiFab with community number at each grid cell */
                                   std::map<std::pair<int, int>,
                                   amrex::DenseBins<AgentContainer::ParticleType> >& bin_map, /*!< Map of dense bins with agents */
                                   const DemographicData& demo, /*!< Demographic data */
@@ -253,7 +247,7 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
         const auto domain = geom.Domain();
 
         int num_infected = 0;
-        for (MFIter mfi(unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
+        for (MFIter mfi(pc.unit_mf, TilingIfNotGPU()); mfi.isValid(); ++mfi)
         {
             amrex::DenseBins<AgentContainer::ParticleType>& bins = bin_map[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
             auto& agents_tile = pc.GetParticles(0)[std::make_pair(mfi.index(),mfi.LocalTileIndex())];
@@ -280,7 +274,7 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
             auto symptomdev_period_ptr = soa.GetRealData(RealIdx::symptomdev_period).data();
 
             //auto unit_arr = unit_mf[mfi].array();
-            auto comm_arr = comm_mf[mfi].array();
+            auto comm_arr = pc.comm_mf[mfi].array();
             auto bx = mfi.tilebox();
 
             const auto* lparm = pc.getDiseaseParameters_d();
@@ -350,10 +344,6 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
           FIPS code. See #ExaEpi::Initialization::infect_random_community().
     */
     void setInitialCasesFromFile (AgentContainer&         pc,       /*!< Agent container (particle container) */
-                                  const amrex::iMultiFab& unit_mf,  /*!< MultiFab with unit number at each grid cell */
-                                  const amrex::iMultiFab& FIPS_mf,  /*!< FIPS code (component 0) and
-                                                                 census tract number (component 1) */
-                                  const amrex::iMultiFab& comm_mf,  /*!< MultiFab with community number at each grid cell */
                                   const CaseData&         cases,    /*!< Case data */
                                   const DemographicData& demo       /*!< demographic data */ )
     {
@@ -375,7 +365,7 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
                     int u=0;
                     int i=0;
                     while (i < cases.Size_hubs[ihub]) {
-                        int nSuccesses= infect_random_community(pc, unit_mf, FIPS_mf, comm_mf, bin_map, demo, units[u], ntry);
+                        int nSuccesses= infect_random_community(pc, bin_map, demo, units[u], ntry);
                         ninf += nSuccesses;
                         i+= nSuccesses;
                         u=(u+1)%units.size(); //sometimes we infect fewer than ntry, but switch to next unit anyway
@@ -388,10 +378,6 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
     }
 
     void setInitialCasesRandom (AgentContainer&         pc,       /*!< Agent container (particle container) */
-                                const amrex::iMultiFab& unit_mf,  /*!< MultiFab with unit number at each grid cell */
-                                const amrex::iMultiFab& FIPS_mf,  /*!< FIPS code (component 0) and
-                                                                 census tract number (component 1) */
-                                const amrex::iMultiFab& comm_mf,  /*!< MultiFab with community number at each grid cell */
                                 int num_cases,
                                 const DemographicData& demo       /*!< demographic data */ )
     {
@@ -403,7 +389,7 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
         for (int ihub = 0; ihub < num_cases; ++ihub) {
             int i = 0;
             while (i < 1) {
-                int nSuccesses= infect_random_community(pc, unit_mf, FIPS_mf, comm_mf, bin_map, demo, -1, 1);
+                int nSuccesses= infect_random_community(pc, bin_map, demo, -1, 1);
                 ninf += nSuccesses;
                 i+= nSuccesses;
             }

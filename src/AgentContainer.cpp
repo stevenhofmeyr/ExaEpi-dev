@@ -96,25 +96,18 @@ void set_particle_pos(Real &p1, Real &p2, int x, int y, Real dx, Real dy, short 
  *      + If age group is 5-17, assign a school based on neighborhood (#assign_school).
  *  + Copy everything to GPU device.
 */
-void AgentContainer::initAgentsCensus (iMultiFab& num_residents,    /*!< Number of residents in each community (grid cell);
-                                                                         component 0: age under 5,
-                                                                         component 1: age group 5-17,
-                                                                         component 2: age group 18-29,
-                                                                         component 3: age group 30-64,
-                                                                         component 4: age group 65+,
-                                                                         component 4: total. */
-                                       iMultiFab& unit_mf,          /*!< Unit number of each community */
-                                       iMultiFab& FIPS_mf,          /*!< FIPS code (component 0) and
-                                                                         census tract number (component 1)
-                                                                         of each community */
-                                       iMultiFab& comm_mf,          /*!< Community number */
-                                       DemographicData& demo        /*!< Demographic data */ )
+void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, DemographicData& demo)
 {
     BL_PROFILE("initAgentsCensus");
 
     ic_type = ExaEpi::ICType::Census;
 
     const Box& domain = Geom(0).Domain();
+
+    num_residents.define(ba, dm, 6, 0);
+    unit_mf.define(ba, dm, 1, 0);
+    FIPS_mf.define(ba, dm, 2, 0);
+    comm_mf.define(ba, dm, 1, 0);
 
     num_residents.setVal(0);
     unit_mf.setVal(-1);

@@ -19,17 +19,11 @@ namespace Initialization
 {
     void read_workerflow (const DemographicData& demo,
                           const TestParams& params,
-                          const amrex::iMultiFab& unit_mf,
-                          const amrex::iMultiFab& comm_mf,
                           AgentContainer& pc);
 
-    void setInitialCasesFromFile (AgentContainer& pc, const amrex::iMultiFab& unit_mf,
-                                  const amrex::iMultiFab& FIPS_mf, const amrex::iMultiFab& comm_mf,
-                                  const CaseData& cases, const DemographicData& demo);
+    void setInitialCasesFromFile (AgentContainer& pc, const CaseData& cases, const DemographicData& demo);
 
-    void setInitialCasesRandom (AgentContainer& pc, const amrex::iMultiFab& unit_mf,
-                                const amrex::iMultiFab& FIPS_mf, const amrex::iMultiFab& comm_mf,
-                                int num_cases, const DemographicData& demo);
+    void setInitialCasesRandom (AgentContainer& pc, int num_cases, const DemographicData& demo);
 }
 }
 

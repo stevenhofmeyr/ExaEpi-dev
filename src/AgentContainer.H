@@ -120,11 +120,7 @@ public:
 #endif
     }
 
-    void initAgentsCensus (amrex::iMultiFab& num_residents,
-                           amrex::iMultiFab& unit_mf,
-                           amrex::iMultiFab& FIPS_mf,
-                           amrex::iMultiFab& comm_mf,
-                           DemographicData& demo);
+    void initAgentsCensus (BoxArray &ba, DistributionMapping &dm, DemographicData& demo);
 
     void initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop);
 
@@ -189,6 +185,20 @@ public:
 
 
     void writeAgentsFile(const std::string &fname);
+
+    // only defined for the Census initialization
+    iMultiFab num_residents;    /*!< Number of residents in each community (grid cell);
+                                       component 0: age under 5,
+                                       component 1: age group 5-17,
+                                       component 2: age group 18-29,
+                                       component 3: age group 30-64,
+                                       component 4: age group 65+,
+                                       component 4: total. */
+    iMultiFab unit_mf;          /*!< Unit number of each community */
+    iMultiFab FIPS_mf;          /*!< FIPS code (component 0) and
+                                       census tract number (component 1)
+                                       of each community */
+    iMultiFab comm_mf;          /*!< Community number */
 
 protected:
 
