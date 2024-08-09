@@ -15,7 +15,7 @@ using float32_t = float;
 
 const size_t PUMS_ID_LEN = 13;
 const size_t NAICS_LEN = 7;
-const size_t NUM_COLS = 30;
+const size_t NUM_COLS = 33;
 
 static string hh_type_descriptions[] = {"hh", "gq"};
 static string hh_living_arrangement_descriptions[] = {"married", "male_no_spouse", "female_no_spouse", "alone", "not_alone"};
@@ -44,9 +44,12 @@ static std::vector<string> split_string(const string &s, char delim) {
 struct UrbanPopAgent {
     int32_t p_id;
     int32_t h_id;
-    int64_t geoid;
-    float32_t latitude;
-    float32_t longitude;
+    int64_t h_geoid;
+    float32_t h_lat;
+    float32_t h_long;
+    int64_t w_geoid;
+    float32_t w_lat;
+    float32_t w_long;
     int32_t hh_income;
     int8_t hh_size;
     int8_t hh_type;
@@ -78,7 +81,6 @@ struct UrbanPopAgent {
         if (!getline(f, buf)) return false;
         if (buf[0] != '*') {
             p_id = -1;
-            amrex::AllPrint() << "line is '" << buf << "'\n";
             return true;
         }
         try {
@@ -88,36 +90,39 @@ struct UrbanPopAgent {
                                          " got " + std::to_string(tokens.size()));
             p_id = stoi(tokens[0]);
             h_id = stoi(tokens[1]);
-            geoid = stol(tokens[2]);
-            latitude = stof(tokens[3]);
-            longitude = stof(tokens[4]);
-            hh_income = stoi(tokens[5]);
-            hh_size = stoi(tokens[6]);
-            hh_type = stoi(tokens[7]);
-            hh_living_arrangement = stoi(tokens[8]);
-            hh_age = stoi(tokens[9]);
-            hh_has_kids = stoi(tokens[10]);
-            hh_nb_wrks = stoi(tokens[11]);
-            hh_nb_non_wrks = stoi(tokens[12]);
-            hh_nb_adult_wrks = stoi(tokens[13]);
-            hh_nb_adult_non_wrks = stoi(tokens[14]);
-            hh_dwg = stoi(tokens[15]);
-            hh_tenure = stoi(tokens[16]);
-            hh_vehicles = stoi(tokens[17]);
-            pr_age = stoi(tokens[18]);
-            pr_sex = stoi(tokens[19]);
-            pr_race = stoi(tokens[20]);
-            pr_hsplat = stoi(tokens[21]);
-            pr_ipr = stoi(tokens[22]);
-            pr_emp_stat = stoi(tokens[23]);
-            pr_travel = stoi(tokens[24]);
-            pr_veh_occ = stoi(tokens[25]);
-            pr_commute = stoi(tokens[26]);
-            pr_grade = stoi(tokens[27]);
-            AMREX_ALWAYS_ASSERT(!tokens[28].empty());
-            strncpy(pums_id, tokens[28].c_str(), PUMS_ID_LEN);
-            AMREX_ALWAYS_ASSERT(!tokens[29].empty());
-            strncpy(pr_naics, tokens[29].c_str(), NAICS_LEN);
+            h_geoid = stol(tokens[2]);
+            h_lat = stof(tokens[3]);
+            h_long = stof(tokens[4]);
+            w_geoid = stol(tokens[5]);
+            w_lat = stof(tokens[6]);
+            w_long = stof(tokens[7]);
+            hh_income = stoi(tokens[8]);
+            hh_size = stoi(tokens[9]);
+            hh_type = stoi(tokens[10]);
+            hh_living_arrangement = stoi(tokens[11]);
+            hh_age = stoi(tokens[12]);
+            hh_has_kids = stoi(tokens[13]);
+            hh_nb_wrks = stoi(tokens[14]);
+            hh_nb_non_wrks = stoi(tokens[15]);
+            hh_nb_adult_wrks = stoi(tokens[16]);
+            hh_nb_adult_non_wrks = stoi(tokens[17]);
+            hh_dwg = stoi(tokens[18]);
+            hh_tenure = stoi(tokens[19]);
+            hh_vehicles = stoi(tokens[20]);
+            pr_age = stoi(tokens[21]);
+            pr_sex = stoi(tokens[22]);
+            pr_race = stoi(tokens[23]);
+            pr_hsplat = stoi(tokens[24]);
+            pr_ipr = stoi(tokens[25]);
+            pr_emp_stat = stoi(tokens[26]);
+            pr_travel = stoi(tokens[27]);
+            pr_veh_occ = stoi(tokens[28]);
+            pr_commute = stoi(tokens[29]);
+            pr_grade = stoi(tokens[30]);
+            AMREX_ALWAYS_ASSERT(!tokens[31].empty());
+            strncpy(pums_id, tokens[31].c_str(), PUMS_ID_LEN);
+            AMREX_ALWAYS_ASSERT(!tokens[32].empty());
+            strncpy(pr_naics, tokens[32].c_str(), NAICS_LEN);
 
         } catch (const std::exception &ex) {
             std::ostringstream os;
@@ -130,9 +135,12 @@ struct UrbanPopAgent {
     friend std::ostream& operator<<(std::ostream& os, const UrbanPopAgent& agent) {
         os << agent.p_id << ',';
         os << agent.h_id << ',';
-        os << agent.geoid << ',';
-        os << agent.latitude << ',';
-        os << agent.longitude << ',';
+        os << agent.h_geoid << ',';
+        os << agent.h_lat << ',';
+        os << agent.h_long << ',';
+        os << agent.w_geoid << ',';
+        os << agent.w_lat << ',';
+        os << agent.w_long << ',';
         os << agent.hh_income << ',';
         os << (int)agent.hh_size << ',';
         os << (int)agent.hh_type << (agent.hh_type != -1 ? ":" + hh_type_descriptions[agent.hh_type] : "") << ",";

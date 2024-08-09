@@ -222,16 +222,23 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
                 else:
                     df[field_type] = df[field_type].astype("int64")
 
+    df.rename(columns={"geoid": "h_geoid"}, inplace=True)
+
     if geoid_locs_map:
         # add lat/long locations from geoids
-        df.insert(df.columns.get_loc("geoid") + 1, "latitude", float(0))
-        df.latitude = df.latitude.astype("float32")
-        df.insert(df.columns.get_loc("latitude") + 1, "longitude", float(0))
-        df.longitude = df.longitude.astype("float32")
+        df.insert(df.columns.get_loc("h_geoid") + 1, "h_lat", float(0))
+        df.h_lat = df.h_lat.astype("float32")
+        df.insert(df.columns.get_loc("h_lat") + 1, "h_long", float(0))
+        df.h_long = df.h_long.astype("float32")
 
     if lodes_flows:
-        df.insert(df.columns.get_loc("longitude") + 1, "w_geoid", float(0))
+        df.insert(df.columns.get_loc("h_long") + 1, "w_geoid", float(0))
         df.w_geoid = df.w_geoid.astype("int64")
+        df.insert(df.columns.get_loc("w_geoid") + 1, "w_lat", float(0))
+        df.w_lat = df.w_lat.astype("float32")
+        df.insert(df.columns.get_loc("w_lat") + 1, "w_long", float(0))
+        df.w_long = df.w_long.astype("float32")
+
 
     print_header(df)
 
@@ -240,13 +247,15 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
     if geoid_locs_map:
         print("Setting lat/long for data", end=" ", flush=True)
         # find lat/long for each row entry
-        df["latitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
-        df["longitude"] = df["geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
+        df["h_lat"] = df["h_geoid"].map(geoid_locs_map).apply(lambda x: x[0]).astype("float32")
+        df["h_long"] = df["h_geoid"].map(geoid_locs_map).apply(lambda x: x[1]).astype("float32")
         print("\nSet lat/long for", len(df.index), "agents in %.3f s" % (time.time() - t))
 
     if lodes_flows:
         print("Setting work GEOIDs for data")
         df["w_geoid"] = process_lodes7.get_prob_work_locations(df, lodes_flows)
+        df["w_lat"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[0]).astype("float32")
+        df["w_long"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[1]).astype("float32")
 
 
     print("Fields are:\n", df.dtypes, sep="")
@@ -254,8 +263,7 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
     #print("Sorting by geoid")
     print("Sorting by lat/long")
     t = time.time()
-    #df.sort_values(by=["geoid"], inplace=True)
-    df.sort_values(by=["latitude", "longitude"], inplace=True)
+    df.sort_values(by=["h_lat", "h_long"], inplace=True)
     print("Sorted in %.3f s" % (time.time() - t))
     print("Writing CSV text data to", out_fname, "and block group summaries to", out_fname + ".geoids")
     t = time.time()
@@ -267,10 +275,10 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
 
     # print each geoid in turn so we can track the file offsets
     f = open(out_fname + ".geoids", mode='w')
-    geoids = df.geoid.unique()
+    geoids = df.h_geoid.unique()
     for i, geoid in enumerate(geoids):
         foffset = os.stat(out_fname).st_size if i > 0 else 0
-        subset_df = df.loc[df['geoid'] == geoid]
+        subset_df = df.loc[df['h_geoid'] == geoid]
         subset_df.to_csv(out_fname, index=True, header=(i == 0), mode='w' if i == 0 else 'a')
         print(geoid, ' '.join(map(str, geoid_locs_map[geoid])), foffset, len(subset_df.index), file=f)
 

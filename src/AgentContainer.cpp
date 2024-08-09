@@ -492,10 +492,16 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 // this approach is needed for GPU parallelism
                 if (i == 0 || (people[i].h_id != people[i - 1].h_id)) nborhood = Random_int(num_nbhoods, engine);
                 nborhood_ptr[pi] = nborhood;
-                // FIXME: these values should be obtained from UrbanPop data
-                work_i_ptr[pi] = -1;
-                work_j_ptr[pi] = -1;
-                workgroup_ptr[pi] = 0;
+                if (people[i].pr_emp_stat == 2 || people[i].pr_emp_stat == 3) {
+                    work_i_ptr[pi] = people[i].work_x;
+                    work_j_ptr[pi] = people[i].work_y;
+                    // FIXME: this needs to be set so that workgroups are of average size 20, but this cannot easily be done here
+                    workgroup_ptr[pi] = 0;
+                } else {
+                    work_i_ptr[pi] = home_i_ptr[pi];
+                    work_j_ptr[pi] = home_j_ptr[pi];
+                    workgroup_ptr[pi] = 0;
+                }
 
                 if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);

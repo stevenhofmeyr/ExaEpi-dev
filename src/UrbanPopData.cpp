@@ -57,8 +57,12 @@ namespace std {
 
 namespace UrbanPop {
 
-void Person::set(int64_t geoid, int p_id, int h_id, int pr_age, int pr_emp_stat, int pr_commute) {
-    this->geoid = geoid;
+void Person::set(int64_t h_geoid, int64_t w_geoid, int work_x, int work_y, int p_id, int h_id, int pr_age,
+                 int pr_emp_stat, int pr_commute) {
+    this->h_geoid = h_geoid;
+    this->w_geoid = w_geoid;
+    this->work_x = work_x;
+    this->work_y = work_y;
     this->p_id = p_id;
     this->h_id = h_id;
     this->pr_age = pr_age;
@@ -89,7 +93,7 @@ bool BlockGroup::read(istringstream &iss) {
     return true;
 }
 
-bool BlockGroup::read_people(ifstream &f) {
+bool BlockGroup::read_people(ifstream &f, float min_lat, float min_long, float gspacing_x, float gspacing_y) {
     string buf;
     num_employed = 0;
     num_military = 0;
@@ -104,10 +108,18 @@ bool BlockGroup::read_people(ifstream &f) {
             Abort("File is corrupted: end of file before read for offset " + to_string(file_offset) + " geoid " +
                   to_string(geoid) + "\n");
         if (agent.p_id == -1) Abort("File is corrupted: couldn't read agent p_id at offset " + to_string(file_offset) + "\n");
-        if (agent.geoid != geoid)
-            Abort("File is corrupted: wrong geoid, read " + to_string(agent.geoid) + " expected " + to_string(geoid) + "\n");
+        if (agent.h_geoid != geoid)
+            Abort("File is corrupted: wrong geoid, read " + to_string(agent.h_geoid) + " expected " + to_string(geoid) + "\n");
         households.insert(agent.h_id);
-        people[i].set(geoid, agent.p_id, agent.h_id, agent.pr_age, agent.pr_emp_stat, agent.pr_commute);
+        int work_x = -1;
+        int work_y = -1;
+        if (agent.pr_emp_stat == 2 || agent.pr_emp_stat == 3) {
+            AMREX_ALWAYS_ASSERT(agent.w_lat != -1 && agent.w_long != -1);
+            work_x = (agent.w_lat - min_lat) / gspacing_x;
+            work_y = (agent.w_long - min_long) / gspacing_y;
+        }
+        people[i].set(agent.h_geoid, agent.w_geoid, work_x, work_y, agent.p_id, agent.h_id, agent.pr_age, agent.pr_emp_stat,
+                      agent.pr_commute);
         // crude estimate based on employment status
         if (agent.pr_emp_stat == 2) num_employed++;
         if (agent.pr_emp_stat == 3) num_military++;
@@ -135,8 +147,8 @@ static Vector<BlockGroup> read_block_groups_file(const string &fname) {
 
 void UrbanPopData::construct_geom (const string &fname, Geometry &geom, DistributionMapping &dm, BoxArray &ba) {
     auto all_block_groups = read_block_groups_file(fname);
-    float min_lat = 1000;
-    float min_long = 1000;
+    min_lat = 1000;
+    min_long = 1000;
     float max_lat = -1000;
     float max_long = -1000;
     for (auto &block_group : all_block_groups) {
@@ -164,8 +176,8 @@ void UrbanPopData::construct_geom (const string &fname, Geometry &geom, Distribu
     // lat/long is a spherical coordinate system
     geom.define(base_domain, &rbox, CoordSys::SPHERICAL);
     // actual spacing (!= gspacing)
-    float gspacing_x = geom.CellSizeArray()[0];
-    float gspacing_y = geom.CellSizeArray()[1];
+    gspacing_x = geom.CellSizeArray()[0];
+    gspacing_y = geom.CellSizeArray()[1];
     Print() << "Geographic area: (" << min_lat << ", " << min_long << ") " << max_lat << ", " << max_long << ")\n";
     Print() << "Base domain: " << geom.Domain() << "\n";
     //Print() << "Geometry: " << geom << "\n";
@@ -257,7 +269,7 @@ void UrbanPopData::InitFromFile (const string& fname, Geometry &geom, Distributi
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     for (auto &block_group : block_groups) {
         my_num_agents += block_group.people.size();
-        block_group.read_people(f);
+        block_group.read_people(f, min_lat, min_long, gspacing_x, gspacing_y);
         num_employed += block_group.num_employed;
         num_military += block_group.num_military;
         num_households += block_group.num_households;

@@ -82,7 +82,7 @@ def load_urbanpop(fname):
     print("Loading", fname)
     agents_df = pd.read_csv(fname)
     print("Loaded", len(agents_df), "agents")
-    num_geoids = agents_df.geoid.nunique()
+    num_geoids = agents_df.h_geoid.nunique()
     print("Number of unique GEOIDs", num_geoids)
     agents_military = len(agents_df[(agents_df.pr_emp_stat == 3)])
     agents_employed = len(agents_df[(agents_df.pr_emp_stat == 2)]) + agents_military
@@ -110,10 +110,10 @@ def get_exact_work_locations(agents_df, flows):
     for _, agent in agents_df.iterrows():
         if agent.pr_emp_stat in [2, 3]:
             # find flows
-            agent_flows = flows.get(str(agent.geoid))
+            agent_flows = flows.get(str(agent.h_geoid))
             if agent_flows is None:
                 num_not_found += 1
-                missing_h_geoids[agent.geoid] = True
+                missing_h_geoids[agent.h_geoid] = True
             elif not agent_flows:
                 #print("agent", index, "is employed but destinations have been exhausted")
                 num_exhausted += 1
@@ -123,12 +123,12 @@ def get_exact_work_locations(agents_df, flows):
                 if w_geoid[:2] != "35":
                     num_out_of_state += 1
                 num_jobs -= 1
-                if w_geoid == str(agent.geoid):
+                if w_geoid == str(agent.h_geoid):
                     num_same_work_home += 1
                 if num_jobs == 0:
-                    del flows[str(agent.geoid)][w_geoid]
+                    del flows[str(agent.h_geoid)][w_geoid]
                 else:
-                    flows[str(agent.geoid)][w_geoid] = num_jobs
+                    flows[str(agent.h_geoid)][w_geoid] = num_jobs
 
 
     if num_not_found > 0:
@@ -152,12 +152,12 @@ def get_exact_work_locations(agents_df, flows):
 def get_w_geoid(agent, flow_probs):
     if agent.pr_emp_stat in [2, 3]:
         # find flows
-        agent_flows = flow_probs.get(str(agent.geoid))
+        agent_flows = flow_probs.get(str(agent.h_geoid))
         if agent_flows is not None:
             w_geoid_idx = np.random.choice(len(agent_flows[0]), p=agent_flows[1])
             return int(agent_flows[0][w_geoid_idx])
         else:
-            print("WARNING: could not find home GEOID", agent.geoid)
+            print("WARNING: could not find home GEOID", agent.h_geoid)
     return -1
 
 
@@ -185,7 +185,7 @@ def get_prob_work_locations(agents_df, flows):
     agents_w_geoids = agents_df.apply(lambda agent: get_w_geoid(agent, flow_probs), axis=1)
 
     num_agents_assigned = sum(agents_w_geoids != -1)
-    num_same_work_home = sum(agents_w_geoids == agents_df.geoid)
+    num_same_work_home = sum(agents_w_geoids == agents_df.h_geoid)
     num_out_of_state = sum(agents_w_geoids.apply(lambda w_geoid: out_of_state(w_geoid)))
 
     print("Set work GEOIDs for", perc_str(num_agents_assigned, agents_employed),
