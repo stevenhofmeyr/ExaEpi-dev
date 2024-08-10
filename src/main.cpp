@@ -178,7 +178,6 @@ void runAgent ()
 
     ParallelContext::BarrierAll();
     pc.writeAgentsFile("agents.csv");
-    //if (params.ic_type == ICType::UrbanPop) return;
 
     int  step_of_peak = 0;
     Long num_infected_peak = 0;
@@ -207,7 +206,7 @@ void runAgent ()
                 ExaEpi::IO::writeFIPSData(pc, demo, params.aggregated_diag_prefix, i);
             }
 
-            Print() << "update status\n";
+            //Print() << "update status\n";
             // Update agents' disease status
             pc.updateStatus(disease_stats);
             ParallelContext::BarrierAll();
@@ -302,18 +301,18 @@ void runAgent ()
                 pc.shelterStop();
             }
 
-            ParallelContext::BarrierAll(); Print() << "morning commute\n";
+            ParallelContext::BarrierAll(); //Print() << "morning commute\n";
             // Typical day
             pc.morningCommute(mask_behavior);
-            ParallelContext::BarrierAll(); Print() << "interact day\n";
+            ParallelContext::BarrierAll(); //Print() << "interact day\n";
             pc.interactDay(mask_behavior);
-            ParallelContext::BarrierAll(); Print() << "evening commute\n";
+            ParallelContext::BarrierAll(); //Print() << "evening commute\n";
             pc.eveningCommute(mask_behavior);
-            ParallelContext::BarrierAll(); Print() << "interact evening\n";
+            ParallelContext::BarrierAll(); //Print() << "interact evening\n";
             pc.interactEvening(mask_behavior);
-            ParallelContext::BarrierAll(); Print() << "interact night\n";
+            ParallelContext::BarrierAll(); //Print() << "interact night\n";
             pc.interactNight(mask_behavior);
-            ParallelContext::BarrierAll(); Print() << "infect agents\n";
+            ParallelContext::BarrierAll(); //Print() << "infect agents\n";
             // Infect agents based on their interactions
             pc.infectAgents();
 

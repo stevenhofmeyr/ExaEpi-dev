@@ -42,21 +42,25 @@ namespace IO
 void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container */
                     const Real cur_time,        /*!< current time */
                     const int step              /*!< Current step */) {
-    amrex::Print() << "Writing plotfile \n";
+    amrex::Print() << "Writing plotfile at step " << step << "\n";
 
     MultiFab output_mf(pc.ParticleBoxArray(0),
                        pc.ParticleDistributionMap(0), 9, 0);
     output_mf.setVal(0.0);
     pc.generateCellData(output_mf);
 
-    amrex::Copy(output_mf, pc.unit_mf, 0, 5, 1, 0);
-    amrex::Copy(output_mf, pc.FIPS_mf, 0, 6, 2, 0);
-    amrex::Copy(output_mf, pc.comm_mf, 0, 8, 1, 0);
+    if (pc.ic_type == ICType::Census) {
+        amrex::Copy(output_mf, pc.unit_mf, 0, 5, 1, 0);
+        amrex::Copy(output_mf, pc.FIPS_mf, 0, 6, 2, 0);
+        amrex::Copy(output_mf, pc.comm_mf, 0, 8, 1, 0);
+    }
 
     amrex::Vector<int> write_real_comp;
     amrex::Vector<int> write_int_comp;
-    amrex::Vector<std::string> real_comp_names = {"disease_counter", "treatment_timer", "infection_prob", "incubation_period", "infectious_period", "symptomdev_period"};
-    amrex::Vector<std::string> int_comp_names = {"status", "strain", "age_group", "family", "home_i", "home_j", "work_i", "work_j", "nborhood", "school", "workgroup", "withdrawn", "symptomatic"};
+    amrex::Vector<std::string> real_comp_names = {"disease_counter", "treatment_timer", "infection_prob", "incubation_period",
+                                                  "infectious_period", "symptomdev_period"};
+    amrex::Vector<std::string> int_comp_names = {"status", "strain", "age_group", "family", "home_i", "home_j", "work_i", "work_j",
+                                                 "nborhood", "school", "workgroup", "withdrawn", "symptomatic"};
 
     if (step == 0) {
         write_real_comp = {1, 1, 1, 1, 1, 1};
@@ -66,9 +70,15 @@ void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container 
         write_int_comp = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1};
     }
 
-    WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
-                             {"total", "never_infected", "infected", "immune", "susceptible", "unit", "FIPS", "Tract", "comm"},
-                             pc.ParticleGeom(0), cur_time, step);
+    if (pc.ic_type == ICType::Census) {
+        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
+                                {"total", "never_infected", "infected", "immune", "susceptible", "unit", "FIPS", "Tract", "comm"},
+                                pc.ParticleGeom(0), cur_time, step);
+    } else {
+        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
+                                {"total", "never_infected", "infected", "immune", "susceptible"},
+                                 pc.ParticleGeom(0), cur_time, step);
+    }
 
     pc.WritePlotFile(amrex::Concatenate("plt", step, 5), "agents",
                      write_real_comp, write_int_comp, real_comp_names, int_comp_names);

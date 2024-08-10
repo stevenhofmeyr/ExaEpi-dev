@@ -200,9 +200,10 @@ public:
                                        of each community */
     iMultiFab comm_mf;          /*!< Community number */
 
+    short ic_type;
+
 protected:
 
-    short ic_type;
     amrex::Real min_pos_x = 0;
     amrex::Real min_pos_y = 0;
 
