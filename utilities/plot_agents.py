@@ -25,23 +25,7 @@ def latlng_to_grid(agent1, agent2, lat, lng):
     return int(round((lat - min_lat) * x_scale) + 1), int(round((lng - min_lng) * y_scale))
 
 
-if __name__ == "__main__":
-    t = time.time()
-    parser = argparse.ArgumentParser(description="Plot agents file")
-    parser.add_argument("--files", "-f", required=True, nargs="+", help="Agent csv files")
-    args = parser.parse_args()
-
-    dfs = []
-    for fname in args.files:
-        print("Reading data from", fname)
-        t = time.time()
-        dfs.append(pd.read_csv(fname, sep='\t'))
-        print("Read", len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
-    df = pd.concat(dfs)
-
-    print("Loaded", len(args.files), "files in %.2f s" % (time.time() - t))
-    print(df)
-
+def plot_population(df):
     px = 1.0 / plt.rcParams['figure.dpi']
     plt.subplots(figsize=(1920*px, 1200*px))
 
@@ -60,8 +44,8 @@ if __name__ == "__main__":
         df_home_counts = df_home_locs.groupby(['x-position', 'y-position']).size()
         y = [s[0] for s in list(df_home_counts.index)]
         x = [s[1] for s in list(df_home_counts.index)]
-        plt.xlabel('Longitude')
-        plt.ylabel('Latitude')
+        #plt.xlabel('Longitude')
+        #plt.ylabel('Latitude')
 
     z = list(df_home_counts / 20)
 
@@ -91,3 +75,23 @@ if __name__ == "__main__":
 
     plt.tight_layout()
     plt.savefig(args.files[0] + "-popluation.pdf")
+
+
+if __name__ == "__main__":
+    t = time.time()
+    parser = argparse.ArgumentParser(description="Plot agents file")
+    parser.add_argument("--files", "-f", required=True, nargs="+", help="Agent csv files")
+    args = parser.parse_args()
+
+    dfs = []
+    for fname in args.files:
+        print("Reading data from", fname)
+        t = time.time()
+        dfs.append(pd.read_csv(fname, sep='\t'))
+        print("Read", len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
+    df = pd.concat(dfs)
+
+    print("Loaded", len(args.files), "files in %.2f s" % (time.time() - t))
+    print(df)
+
+    plot_population(df)
