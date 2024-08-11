@@ -60,7 +60,7 @@ def get_lodes_flows(lodes_fname):
             flows= pickle.load(f)
         print("Loaded", len(flows), "home GEOID flows")
     else:
-        for index, row in lodes_df.iterrows():
+        for _, row in lodes_df.iterrows():
             h_block_group = str(row.h_geocode)[:12]
             w_block_group = str(row.w_geocode)[:12]
             n_jobs = row.S000
@@ -74,6 +74,12 @@ def get_lodes_flows(lodes_fname):
         print("Found", len(flows), "flows")
         with open(flows_fname, "wb") as f:
             pickle.dump(flows, f)
+
+    with open(lodes_fname + "-aggregated-flows", "w") as f:
+        for h_block_group, w_block_groups in flows.items():
+            for w_block_group, counts in w_block_groups.items():
+                print(h_block_group, w_block_group, counts, sep=",", file=f)
+
     return flows
 
 
@@ -99,7 +105,7 @@ def get_exact_work_locations(agents_df, flows):
     for _, w_block_groups in flows.items():
         tot_flow += sum(w_block_groups.values())
 
-    print("Total employed according to LODES", tot_flow, sum([sum(x) for x in flows.values()]))
+    print("Total employed according to LODES", tot_flow)
 
     num_agents_assigned = 0
     num_exhausted = 0
@@ -189,9 +195,9 @@ def get_prob_work_locations(agents_df, flows):
     num_out_of_state = sum(agents_w_geoids.apply(lambda w_geoid: out_of_state(w_geoid)))
 
     print("Set work GEOIDs for", perc_str(num_agents_assigned, agents_employed),
-          "agents, with", perc_str(num_out_of_state, num_agents_assigned),
+          "employed agents, with", perc_str(num_out_of_state, num_agents_assigned),
           "out of state work locations")
-    print("Number of agents with same work and home locations",
+    print("Number of employed agents with same work and home locations",
           perc_str(num_same_work_home, num_agents_assigned))
 
     return agents_w_geoids

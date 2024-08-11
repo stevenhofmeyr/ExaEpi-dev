@@ -95,3 +95,7 @@ if __name__ == "__main__":
     print(df)
 
     plot_population(df)
+
+    # now do new plot of worker flows
+
+

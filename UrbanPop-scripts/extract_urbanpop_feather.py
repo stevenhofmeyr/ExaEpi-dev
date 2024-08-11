@@ -257,6 +257,8 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
         df["w_lat"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[0]).astype("float32")
         df["w_long"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[1]).astype("float32")
 
+        df_workerflows = df.groupby(['h_geoid', 'w_geoid']).size()
+        df_workerflows.to_csv(out_fname + "-generated_workerflows")
 
     print("Fields are:\n", df.dtypes, sep="")
 
