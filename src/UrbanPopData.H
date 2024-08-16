@@ -46,6 +46,7 @@ struct BlockGroup {
 struct UrbanPopData {
     // each block group has around 1500 people
     amrex::Vector<BlockGroup> block_groups;
+    std::unordered_map<int64_t, int> block_group_workers;
     float min_lat, min_long;
     float gspacing_x, gspacing_y;
 

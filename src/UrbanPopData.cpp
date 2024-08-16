@@ -155,11 +155,13 @@ void UrbanPopData::construct_geom (const string &fname, Geometry &geom, Distribu
     min_long = 1000;
     float max_lat = -1000;
     float max_long = -1000;
+    block_group_workers.clear();
     for (auto &block_group : all_block_groups) {
         max_lat = max(block_group.latitude, max_lat);
         max_long = max(block_group.longitude, max_long);
         min_lat = min(block_group.latitude, min_lat);
         min_long = min(block_group.longitude, min_long);
+        block_group_workers[block_group.geoid] = block_group.num_workers;
     }
 
     // grid spacing is 1/10th minute of arc at the equator, which is about 0.12 regular miles

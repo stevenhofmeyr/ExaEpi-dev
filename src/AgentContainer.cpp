@@ -402,6 +402,8 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
 void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
     BL_PROFILE("initAgentsUrbanPop");
 
+    const int WORKGROUP_SIZE = 20;
+
     ic_type = ExaEpi::ICType::UrbanPop;
     min_pos_x = ParticleGeom(0).ProbLo()[0];
     min_pos_y = ParticleGeom(0).ProbLo()[1];
@@ -488,9 +490,6 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 if (people[i].pr_emp_stat == 2 || people[i].pr_emp_stat == 3) {
                     work_i_ptr[pi] = people[i].work_x;
                     work_j_ptr[pi] = people[i].work_y;
-                    // FIXME: this needs to be set so that workgroups are of average size 20, but this cannot easily be done here
-                    // workgroups are at least 1 to indicate worker, not working from home
-                    workgroup_ptr[pi] = Random_int(100, engine) + 1;
                 } else {
                     work_i_ptr[pi] = home_i_ptr[pi];
                     work_j_ptr[pi] = home_j_ptr[pi];
@@ -502,6 +501,17 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
             });
+            amrex:RandomEngine engine;
+            // separate loop for setting the workgroup since I'm not sure how to use an unordered_map in GPU code
+            for (int i = 0; i < block_group.people.size(); i++) {
+                auto &person = block_group.people[i];
+                int pi = block_pi + i;
+                if (person.pr_emp_stat == 2 || person.pr_emp_stat == 3) {
+                    int num_workgroups = max(urban_pop.block_group_workers[person.w_geoid] / WORKGROUP_SIZE, 1);
+                    // workgroups are at least 1 to indicate worker, not working from home
+                    workgroup_ptr[pi] = Random_int(num_workgroups, engine) + 1;
+                }
+            }
             // loop to set the household neighborhoods
             amrex::ParallelFor(block_group.people.size(), [=] AMREX_GPU_DEVICE (int i) noexcept {
                 int pi = block_pi + i;
@@ -1194,7 +1204,7 @@ void AgentContainer::writeAgentsFile (const string &fname) {
     Print() << "Writing agents to files " << fname + ".<i>\n";
     string my_fname = fname + "." + std::to_string(MyProc());
     std::ofstream outfs(my_fname);
-    outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\twork_nbh\n";
+    outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\n";
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev  = GetParticles(lev);
         int max_x = 0, max_y = 0;
