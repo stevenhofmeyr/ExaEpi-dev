@@ -501,7 +501,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
             });
-            amrex:RandomEngine engine;
+            amrex::RandomEngine engine;
             // separate loop for setting the workgroup since I'm not sure how to use an unordered_map in GPU code
             for (int i = 0; i < block_group.people.size(); i++) {
                 auto &person = block_group.people[i];
