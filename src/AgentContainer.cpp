@@ -399,10 +399,8 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
 * In the non-UrbanPop version the communities are distributed uniformly across a 1.0 x 1.0 geometry.
 * With the UrbanPop data, we use the latitude and longitude of each block group as the position.
 */
-void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
+void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, const int nborhood_size, const int workgroup_size) {
     BL_PROFILE("initAgentsUrbanPop");
-
-    const int WORKGROUP_SIZE = 20;
 
     ic_type = ExaEpi::ICType::UrbanPop;
     min_pos_x = ParticleGeom(0).ProbLo()[0];
@@ -453,8 +451,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
             int y = block_group.y;
             Real px = (Real)x * dx[0] + min_pos_x;
             Real py = (Real)y * dx[1] + min_pos_y;
-            // set number of nbhoods to get each nbhood as close to 500 as possible
-            int num_nbhoods = std::max(std::round((double)block_group.people.size() / 500), 1.0);
+            // set number of nbhoods to get each nbhood as close to nborhood_size as possible
+            int num_nbhoods = std::max(std::round((double)block_group.people.size() / nborhood_size), 1.0);
             auto people = &block_group.people[0];
             amrex::ParallelForRNG(block_group.people.size(),
               [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
@@ -507,7 +505,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                 auto &person = block_group.people[i];
                 int pi = block_pi + i;
                 if (person.pr_emp_stat == 2 || person.pr_emp_stat == 3) {
-                    int num_workgroups = max(urban_pop.block_group_workers[person.w_geoid] / WORKGROUP_SIZE, 1);
+                    int num_workgroups = max(round(urban_pop.block_group_workers[person.w_geoid] / workgroup_size), 1.0);
                     // workgroups are at least 1 to indicate worker, not working from home
                     workgroup_ptr[pi] = Random_int(num_workgroups, engine) + 1;
                 }

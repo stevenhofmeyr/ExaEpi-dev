@@ -171,7 +171,7 @@ void runAgent ()
                 ExaEpi::Initialization::setInitialCasesRandom(pc, params.num_initial_cases, demo);
             }
         } else if (params.ic_type == ICType::UrbanPop) {
-            pc.initAgentsUrbanPop(urban_pop);
+            pc.initAgentsUrbanPop(urban_pop, params.nborhood_size, params.workgroup_size);
             //ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
         }
     }

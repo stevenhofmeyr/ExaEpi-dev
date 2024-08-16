@@ -122,7 +122,7 @@ public:
 
     void initAgentsCensus (BoxArray &ba, DistributionMapping &dm, DemographicData& demo);
 
-    void initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop);
+    void initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, const int nborhood_size, const int workgroup_size);
 
     void morningCommute(amrex::MultiFab&);
 

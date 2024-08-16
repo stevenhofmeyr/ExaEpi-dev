@@ -69,6 +69,9 @@ void ExaEpi::Utils::get_test_params (   TestParams& params,         /*!< Test pa
     pp.query("shelter_start",  params.shelter_start);
     pp.query("shelter_length", params.shelter_length);
 
+    pp.query("nborhood_size",  params.nborhood_size);
+    pp.query("workgroup_size", params.workgroup_size);
+
     Long seed = 0;
     bool reset_seed = pp.query("seed", seed);
     if (reset_seed) {

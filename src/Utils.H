@@ -71,6 +71,9 @@ struct TestParams
 
     int shelter_start = -1;
     int shelter_length = 0;
+
+    int nborhood_size = 500;
+    int workgroup_size = 20;
 };
 
 /**
