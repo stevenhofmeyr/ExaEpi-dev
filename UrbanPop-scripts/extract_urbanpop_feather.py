@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import sys
 import os.path
 import os
 import pandas
@@ -8,6 +9,8 @@ import numpy as np
 import time
 import argparse
 import geopandas
+import scipy
+import scipy.stats
 import process_lodes7
 
 
@@ -174,10 +177,10 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
 
     dfs = []
     for fname in fnames:
-        print("Reading data from", fname)
+        print("Reading data from", fname, end=': ')
         t = time.time()
         dfs.append(pandas.read_feather(fname))
-        print("Read", len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
+        print(len(dfs[-1].index), "records in %.3f s" % (time.time() - t))
 
     df = pandas.concat(dfs)
     # set specific ID types
@@ -232,7 +235,7 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
         df.h_long = df.h_long.astype("float32")
 
     if lodes_flows:
-        df.insert(df.columns.get_loc("h_long") + 1, "w_geoid", float(0))
+        df.insert(df.columns.get_loc("h_long") + 1, "w_geoid", float(-1))
         df.w_geoid = df.w_geoid.astype("int64")
         df.insert(df.columns.get_loc("w_geoid") + 1, "w_lat", float(0))
         df.w_lat = df.w_lat.astype("float32")
@@ -253,12 +256,57 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
 
     if lodes_flows:
         print("Setting work GEOIDs for data")
-        df["w_geoid"] = process_lodes7.get_prob_work_locations(df, lodes_flows)
+        # first get exact work locations
+        #df["w_geoid"] = process_lodes7.get_work_locations(df, lodes_flows, use_prob=False)
+        # now get probabalisitically for the ones that weren't allocated
+        df["w_geoid"] = process_lodes7.get_work_locations(df, lodes_flows, use_prob=True)
         df["w_lat"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[0]).astype("float32")
         df["w_long"] = df["w_geoid"].map(geoid_locs_map).apply(lambda x: -1 if isinstance(x, float) else x[1]).astype("float32")
 
         df_workerflows = df.groupby(['h_geoid', 'w_geoid']).size()
-        df_workerflows.to_csv(out_fname + "-generated_workerflows")
+        generated_workerflows = {}
+        #df_workerflows.to_csv(out_fname + "-generated_workerflows")
+        for (h_geoid, w_geoid), counts in df_workerflows.items():
+            if w_geoid == -1:
+                continue
+            if not h_geoid in generated_workerflows:
+                generated_workerflows[h_geoid] = {}
+            generated_workerflows[h_geoid][w_geoid] = counts
+
+        lodes_counts = []
+        generated_counts = []
+        for h_block_group, w_block_groups in lodes_flows.items():
+            h_block_group = int(h_block_group)
+            for w_block_group, counts in w_block_groups.items():
+                w_block_group = int(w_block_group)
+                lodes_counts.append(counts)
+                if h_block_group in generated_workerflows and w_block_group in generated_workerflows[h_block_group]:
+                    generated_counts.append(generated_workerflows[h_block_group][w_block_group])
+                else:
+                    generated_counts.append(0)
+        p = np.array(lodes_counts)
+        q = np.array(generated_counts)
+        d = abs(p - q)
+        print("Mean diffs", np.mean(d))
+        print("Total LODES flows", p.sum(), "total generated flows", q.sum())
+        print("Wasserstein distance %.5f, max LODES %.0f, max generated %.0f" % \
+              (scipy.stats.wasserstein_distance(p, q), max(p), max(q)))
+        p = p / p.sum()
+        q = q / q.sum()
+        m = (p + q) / 2
+        divergence = (scipy.stats.entropy(p, m) + scipy.stats.entropy(q, m)) / 2
+        print("Jenson-Shannon divergence between LODES and generated: %.3f (%d items)" % (np.sqrt(divergence), len(lodes_counts)))
+        if False:
+            p_hist, _ = np.histogram(p, bins=1000, density=True)
+            q_hist, _ = np.histogram(q, bins=1000, density=True)
+            p_hist = p_hist / p_hist.sum()
+            q_hist = q_hist / q_hist.sum()
+            m_hist = (p_hist + q_hist) / 2
+            divergence = (scipy.stats.entropy(p_hist, m_hist) + scipy.stats.entropy(q_hist, m_hist)) / 2
+            print("Jenson-Shannon divergence (histogram) between LODES and generated: %.3f (%d items)" %
+                (np.sqrt(divergence), len(lodes_counts)))
+            print("Wasserstein distance (histogram) %.5f, max value %.5f" % (scipy.stats.wasserstein_distance(p_hist, q_hist),
+                                                                max(max(p_hist), max(q_hist))))
 
     print("Fields are:\n", df.dtypes, sep="")
 
@@ -275,15 +323,23 @@ def process_feather_files(fnames, out_fname, geoid_locs_map, lodes_flows):
     # start with a distinct marker so that the file can be read in parallel more easily
     df.index = ['*'] * num_rows
 
-    # print each geoid in turn so we can track the file offsets
-    f = open(out_fname + ".geoids", mode='w')
-    geoids = df.h_geoid.unique()
-    for i, geoid in enumerate(geoids):
-        foffset = os.stat(out_fname).st_size if i > 0 else 0
-        subset_df = df.loc[df['h_geoid'] == geoid]
-        subset_df.to_csv(out_fname, index=True, header=(i == 0), mode='w' if i == 0 else 'a')
-        print(geoid, ' '.join(map(str, geoid_locs_map[geoid])), foffset, len(subset_df.index), file=f)
+    w_geoids_map = {}
+    w_geoids = df.w_geoid.unique()
+    for i, geoid in enumerate(w_geoids):
+        subset_df = df.loc[df['w_geoid'] == geoid]
+        w_geoids_map[geoid] = len(subset_df.index)
+    print("Found", len(w_geoids_map), "work locations")
 
+    # print each geoid in turn so we can track the file offsets
+    with open(out_fname + ".geoids", mode='w') as f:
+        print("geoid lat lng foff h_pop w_pop", file=f)
+        geoids = df.h_geoid.unique()
+        for i, geoid in enumerate(geoids):
+            foffset = os.stat(out_fname).st_size if i > 0 else 0
+            subset_df = df.loc[df['h_geoid'] == geoid]
+            subset_df.to_csv(out_fname, index=True, header=(i == 0), mode='w' if i == 0 else 'a')
+            w_pop = w_geoids_map[geoid] if geoid in w_geoids_map else 0
+            print(geoid, ' '.join(map(str, geoid_locs_map[geoid])), foffset, len(subset_df.index), w_pop, file=f)
     print("Wrote", len(df.index), "records in %.3f s" % (time.time() - t))
 
 

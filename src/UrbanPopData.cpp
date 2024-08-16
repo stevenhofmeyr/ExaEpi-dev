@@ -71,7 +71,7 @@ void Person::set(int64_t h_geoid, int64_t w_geoid, int work_x, int work_y, int p
 }
 
 bool BlockGroup::read(istringstream &iss) {
-    const int NTOKS = 5;
+    const int NTOKS = 6;
 
     string buf;
     if (!getline(iss, buf)) return false;
@@ -84,6 +84,7 @@ bool BlockGroup::read(istringstream &iss) {
         longitude = stof(tokens[2]);
         file_offset = stol(tokens[3]);
         int population = stoi(tokens[4]);
+        num_workers = stoi(tokens[5]);
         people.resize(population);
     } catch (const std::exception &ex) {
         std::ostringstream os;
@@ -138,6 +139,9 @@ static Vector<BlockGroup> read_block_groups_file(const string &fname) {
 
     Vector<BlockGroup> block_groups;
     BlockGroup block_group;
+    string buf;
+    // first line should be column labels
+    getline(geoids_file_iss, buf);
     while (true) {
         if (!block_group.read(geoids_file_iss)) break;
         block_groups.push_back(block_group);

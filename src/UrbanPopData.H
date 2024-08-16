@@ -36,6 +36,7 @@ struct BlockGroup {
     int num_households;
     int num_employed;
     int num_military;
+    int num_workers;
     amrex::Vector<Person> people;
 
     bool read(std::istringstream &iss);

@@ -24,6 +24,7 @@ import random
 import numpy as np
 import functools
 import time
+import copy
 
 
 def timer(func):
@@ -75,11 +76,6 @@ def get_lodes_flows(lodes_fname):
         with open(flows_fname, "wb") as f:
             pickle.dump(flows, f)
 
-    with open(lodes_fname + "-aggregated-flows", "w") as f:
-        for h_block_group, w_block_groups in flows.items():
-            for w_block_group, counts in w_block_groups.items():
-                print(h_block_group, w_block_group, counts, sep=",", file=f)
-
     return flows
 
 
@@ -97,74 +93,74 @@ def load_urbanpop(fname):
     return agents_df
 
 
+def exact_get_w_geoid(agent, flows):
+    if agent.pr_emp_stat in [2, 3]:
+        agent_flows = flows.get(str(agent.h_geoid))
+        if agent_flows is None:
+            print("WARNING: could not find home GEOID", agent.h_geoid)
+        elif agent_flows:
+            w_geoid, num_jobs = random.choice(list(agent_flows.items()))
+            num_jobs -= 1
+            if num_jobs == 0:
+                del flows[str(agent.h_geoid)][w_geoid]
+            else:
+                flows[str(agent.h_geoid)][w_geoid] = num_jobs
+            return int(w_geoid)
+    return -1
+
+
+def prob_get_w_geoid(agent, flow_probs):
+    if agent.pr_emp_stat not in [2, 3]:
+        return -1
+    if "w_geoid" in agent and agent.w_geoid != -1:
+        return agent.w_geoid
+    agent_flows = flow_probs.get(str(agent.h_geoid))
+    if agent_flows is not None:
+        w_geoid_idx = np.random.choice(len(agent_flows[0]), p=agent_flows[1])
+        return int(agent_flows[0][w_geoid_idx])
+    else:
+        print("WARNING: could not find home GEOID", agent.h_geoid)
+        return -1
+
+
 @timer
-def get_exact_work_locations(agents_df, flows):
-    print("Getting exact work locations from LODES data")
+def get_work_locations(agents_df, flows, use_prob):
+    print("Getting", "probabilistic" if use_prob else "exact", "work locations from LODES data")
     agents_employed = len(agents_df[(agents_df.pr_emp_stat == 2)]) + len(agents_df[(agents_df.pr_emp_stat == 3)])
     tot_flow = 0
     for _, w_block_groups in flows.items():
         tot_flow += sum(w_block_groups.values())
-
     print("Total employed according to LODES", tot_flow)
 
-    num_agents_assigned = 0
-    num_exhausted = 0
-    num_not_found = 0
-    num_out_of_state = 0
-    missing_h_geoids = {}
-    num_same_work_home = 0
-    for _, agent in agents_df.iterrows():
-        if agent.pr_emp_stat in [2, 3]:
-            # find flows
-            agent_flows = flows.get(str(agent.h_geoid))
-            if agent_flows is None:
-                num_not_found += 1
-                missing_h_geoids[agent.h_geoid] = True
-            elif not agent_flows:
-                #print("agent", index, "is employed but destinations have been exhausted")
-                num_exhausted += 1
-            else:
-                num_agents_assigned += 1
-                w_geoid, num_jobs = random.choice(list(agent_flows.items()))
-                if w_geoid[:2] != "35":
-                    num_out_of_state += 1
-                num_jobs -= 1
-                if w_geoid == str(agent.h_geoid):
-                    num_same_work_home += 1
-                if num_jobs == 0:
-                    del flows[str(agent.h_geoid)][w_geoid]
-                else:
-                    flows[str(agent.h_geoid)][w_geoid] = num_jobs
+    if use_prob:
+        flow_probs = {}
+        for h_block_group, w_block_groups in flows.items():
+            sum_vals = sum(w_block_groups.values())
+            probs = [float(x) / sum_vals for x in w_block_groups.values()]
+            flow_probs[h_block_group] = [list(w_block_groups.keys()), probs]
+        agents_w_geoids = agents_df.apply(lambda agent: prob_get_w_geoid(agent, flow_probs), axis=1)
+    else:
+        flow_counts = copy.deepcopy(flows)
+        agents_w_geoids = agents_df.apply(lambda agent: exact_get_w_geoid(agent, flow_counts), axis=1)
 
-
-    if num_not_found > 0:
-        print("WARNING: Couldn't find", perc_str(num_not_found, agents_employed),
-              "agent home geoids (" + str(len(missing_h_geoids)), "unique).",
-              "This likely indicates a LODES to UrbanPop data mismatch.")
+    num_agents_assigned = sum(agents_w_geoids != -1)
+    num_same_work_home = sum(agents_w_geoids == agents_df.h_geoid)
+    num_out_of_state = sum(agents_w_geoids.apply(lambda w_geoid: out_of_state(w_geoid)))
 
     print("Set work GEOIDs for", perc_str(num_agents_assigned, agents_employed),
-          "agents, with", perc_str(num_out_of_state, num_agents_assigned),
+          "employed agents, with", perc_str(num_out_of_state, num_agents_assigned),
           "out of state work locations")
-    print("Number of agents with same work and home locations",
+    print("Number of employed agents with same work and home locations",
           perc_str(num_same_work_home, num_agents_assigned))
 
-    tot_leftover_flow = 0
-    for _, w_block_groups in flows.items():
-        for _, num_jobs in w_block_groups.items():
-            tot_leftover_flow += num_jobs
-    print("Number employed leftover", perc_str(tot_leftover_flow, tot_flow))
+    if not use_prob:
+        tot_leftover_flow = 0
+        for _, w_block_groups in flow_counts.items():
+            for _, num_jobs in w_block_groups.items():
+                tot_leftover_flow += num_jobs
+        print("Number LODES leftover", perc_str(tot_leftover_flow, tot_flow))
 
-
-def get_w_geoid(agent, flow_probs):
-    if agent.pr_emp_stat in [2, 3]:
-        # find flows
-        agent_flows = flow_probs.get(str(agent.h_geoid))
-        if agent_flows is not None:
-            w_geoid_idx = np.random.choice(len(agent_flows[0]), p=agent_flows[1])
-            return int(agent_flows[0][w_geoid_idx])
-        else:
-            print("WARNING: could not find home GEOID", agent.h_geoid)
-    return -1
+    return agents_w_geoids
 
 
 def out_of_state(w_geoid):
@@ -187,8 +183,7 @@ def get_prob_work_locations(agents_df, flows):
         flow_probs[h_block_group] = [list(w_block_groups.keys()), probs]
     print("Total employed according to LODES", tot_flow)
 
-    #np.random.seed(29)
-    agents_w_geoids = agents_df.apply(lambda agent: get_w_geoid(agent, flow_probs), axis=1)
+    agents_w_geoids = agents_df.apply(lambda agent: prob_get_w_geoid(agent, flow_probs), axis=1)
 
     num_agents_assigned = sum(agents_w_geoids != -1)
     num_same_work_home = sum(agents_w_geoids == agents_df.h_geoid)
@@ -209,9 +204,8 @@ def main():
     # Now read in the urbanpop data csv file, and for each agent, add a work destination,
     # if appropriate
     agents_df = load_urbanpop(sys.argv[2])
-    #agents_df = agents_df.head(100000)
-    #get_exact_work_locations(agents_df, flows)
-    agents_w_geoids = get_prob_work_locations(agents_df, flows)
+    agents_df = agents_df.head(100000)
+    agents_w_geoids = get_work_locations(agents_df, flows, use_prob=True)
     agents_w_geoids.to_csv("agents_w_geoids.csv", index=True)
 
 

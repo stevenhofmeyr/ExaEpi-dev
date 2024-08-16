@@ -489,10 +489,12 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop) {
                     work_i_ptr[pi] = people[i].work_x;
                     work_j_ptr[pi] = people[i].work_y;
                     // FIXME: this needs to be set so that workgroups are of average size 20, but this cannot easily be done here
-                    workgroup_ptr[pi] = 0;
+                    // workgroups are at least 1 to indicate worker, not working from home
+                    workgroup_ptr[pi] = Random_int(100, engine) + 1;
                 } else {
                     work_i_ptr[pi] = home_i_ptr[pi];
                     work_j_ptr[pi] = home_j_ptr[pi];
+                    // indicates that the agent doesn't work
                     workgroup_ptr[pi] = 0;
                 }
 
