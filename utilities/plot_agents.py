@@ -8,8 +8,16 @@ import matplotlib as mp
 import matplotlib.pyplot as plt
 import numpy as np
 
+x_scale = 0
+y_scale = 0
+min_lat = 0
+min_lng = 0
 
 def latlng_to_grid(agent1, agent2, lat, lng):
+    global x_scale
+    global y_scale
+    global min_lat
+    global min_lng
     lat1 = agent1['x-position']
     lng1 = agent1['y-position']
     x1 = int(agent1['home'].split(',')[0])
@@ -18,10 +26,11 @@ def latlng_to_grid(agent1, agent2, lat, lng):
     lng2 = agent2['y-position']
     x2 = int(agent2['home'].split(',')[0])
     y2 = int(agent2['home'].split(',')[1])
-    x_scale = abs(x1 - x2) / abs(lat1 - lat2)
-    y_scale = abs(y1 - y2) / abs(lng1 - lng2)
-    min_lat = min(df['x-position'])
-    min_lng = min(df['y-position'])
+    if x_scale == 0:
+        x_scale = abs(x1 - x2) / abs(lat1 - lat2)
+        y_scale = abs(y1 - y2) / abs(lng1 - lng2)
+        min_lat = min(df['x-position'])
+        min_lng = min(df['y-position'])
     return int(round((lat - min_lat) * x_scale) + 1), int(round((lng - min_lng) * y_scale))
 
 
