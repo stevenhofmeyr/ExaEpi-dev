@@ -36,6 +36,7 @@ struct IntIdx
         work_j          /*!< work location index */,
         nborhood,       /*!< home neighborhood ID */
         school,         /*!< school type (elementary, middle, high, none) */
+        fips,           /*!< FIPS code for this agent's home location */
         workgroup,      /*!< workgroup ID */
         withdrawn,      /*!< quarantine status */
         symptomatic,    /*!< currently symptomatic? 0: no, but will be, 1: yes, 2: no, and will remain so until recovered */

@@ -442,6 +442,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
 
         int my_proc = MyProc();
         int block_pi = 0;
@@ -498,6 +499,8 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
                 if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
+                // FIPS is the first 5 digits of the GEOID, which is 12 digits
+                fips_ptr[pi] = (int)(people[i].h_geoid / 10000000);
             });
             amrex::RandomEngine engine;
             // separate loop for setting the workgroup since I'm not sure how to use an unordered_map in GPU code
@@ -1095,7 +1098,7 @@ void AgentContainer::generateCellData (MultiFab& mf /*!< MultiFab with at least 
     the total number of agents at a step with the corresponding #Status (in that order).
 */
 std::array<Long, 9> AgentContainer::getTotals () {
-    BL_PROFILE("getTotals");
+    BL_PROFILE("AgentContainer::getTotals");
     amrex::ReduceOps<ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum, ReduceOpSum> reduce_ops;
     auto r = amrex::ParticleReduce<ReduceData<int,int,int,int,int,int,int,int,int>> (
                   *this, [=] AMREX_GPU_DEVICE (const SuperParticleType& p) noexcept
@@ -1198,11 +1201,17 @@ void AgentContainer::interactNight ( MultiFab& a_mask_behavior /*!< Masking beha
 }
 
 
-void AgentContainer::writeAgentsFile (const string &fname) {
+void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
+    BL_PROFILE("AgentContainer::writeAgentsFile");
     Print() << "Writing agents to files " << fname + ".<i>\n";
-    string my_fname = fname + "." + std::to_string(MyProc());
+    string my_fname = fname;
+    if (step_number != -1) my_fname += ".s" + std::to_string(step_number);
+    my_fname += "." + std::to_string(MyProc()) + ".tsv";
     std::ofstream outfs(my_fname);
-    outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\n";
+    if (step_number == -1)
+        outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\tfips\n";
+    else
+        outfs << "#ID\thome\tstatus\n";
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev  = GetParticles(lev);
         int max_x = 0, max_y = 0;
@@ -1222,39 +1231,151 @@ void AgentContainer::writeAgentsFile (const string &fname) {
             auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
             auto school_ptr = soa.GetIntData(IntIdx::school).data();
             auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+            auto status_ptr = soa.GetIntData(IntIdx::status).data();
             for (int i = 0; i < np; i++) {
                 auto& agent = aos[i];
-                outfs << agent.id() << "\t" << std::fixed << std::setprecision(8) << agent.pos(0) << "\t" << agent.pos(1) << "\t"
-                      << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
-                      << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
-                      << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
-                      << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\n";
+                if (step_number != -1) {
+                    outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
+                          << home_i_ptr[i] << "," << home_j_ptr[i] << "\t" << status_ptr[i] << "\n";
+                } else {
+                    outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
+                          << agent.pos(0) << "\t" << agent.pos(1) << "\t"
+                          << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
+                          << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
+                          << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
+                          << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\t"
+                          << fips_ptr[i] << "\n";
+                }
                 max_x = std::max(max_x, home_i_ptr[i]);
                 max_y = std::max(max_y, home_j_ptr[i]);
             }
         }
-        Vector<Vector<int>> communities(max_x + 1, Vector<int>(max_y + 1, 0));
-
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            int gid = mfi.index();
-            int tid = mfi.LocalTileIndex();
-            //AllPrint() << MyProc() << ": gid " << gid << " tid " << tid << "\n";
-            auto& ptile = plev[std::make_pair(gid, tid)];
-            auto& soa = ptile.GetStructOfArrays();
-            auto& aos = ptile.GetArrayOfStructs();
-            const auto np = ptile.numParticles();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            for (int i = 0; i < np; i++) {
-                auto& agent = aos[i];
-                communities[home_i_ptr[i]][home_j_ptr[i]]++;
+#ifdef DEBUG
+        if (step_number == -1) {
+            Vector<Vector<int>> communities(max_x + 1, Vector<int>(max_y + 1, 0));
+            int tot_np = 0;
+            for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+                int gid = mfi.index();
+                int tid = mfi.LocalTileIndex();
+                //AllPrint() << MyProc() << ": gid " << gid << " tid " << tid << "\n";
+                auto& ptile = plev[std::make_pair(gid, tid)];
+                auto& soa = ptile.GetStructOfArrays();
+                auto& aos = ptile.GetArrayOfStructs();
+                const auto np = ptile.numParticles();
+                auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+                auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+                for (int i = 0; i < np; i++) {
+                    auto& agent = aos[i];
+                    communities[home_i_ptr[i]][home_j_ptr[i]]++;
+                }
+                tot_np += np;
             }
+            string my_fname_communities = fname + ".communities." + std::to_string(MyProc()) + ".tsv";
+            std::ofstream outfs_communities(my_fname_communities);
+            for (int x = 0; x <= max_x; x++) {
+                for (int y = 0; y <= max_y; y++) {
+                    if (communities[x][y] > 0) outfs_communities << x << "\t" << y << "\t" << communities[x][y] << "\n";
+                }
+            }
+            outfs_communities.close();
+            AllPrint() << "tot np " << tot_np << "\n";
         }
-        /*for (int x = 0; x < max_x; x++) {
-            for (int y = 0; y < max_y; y++) {
-                AllPrint() << "x,y " << x << "," << y << " pop " << communities[x][y] << "\n";
-            }
-        }*/
+#endif
     }
     outfs.close();
+}
+
+void AgentContainer::infectAgents (const CaseData &cases) {
+    BL_PROFILE("AgentContainer::infectAgents");
+    /*
+    // get the total number of candidates to be infected
+    amrex::ReduceOps<ReduceOpSum> reduce_ops;
+    auto r = ParticleReduce<ReduceData<int>>(*this, [=] AMREX_GPU_DEVICE (const SuperParticleType& p) noexcept -> GpuTuple<int> {
+        int s = 0;
+        if (cases.num_cases[p.idata(IntIdx::fips)]) s = 1;
+        return {s};
+    }, reduce_ops);
+    int counts = amrex::get<0>(r);
+    ParallelDescriptor::ReduceIntSum(counts);
+    AllPrint() << "reduction count " << counts << "\n";
+    */
+    // infect with given probability
+    // FIXME: this isn't accurate enough. Need to actually randomly pick agents until we have enough
+    for (int lev = 0; lev <= finestLevel(); ++lev) {
+        auto& plev  = GetParticles(lev);
+/*#ifdef AMREX_USE_GPU
+        int *num_candidates = (int*)amrex::The_Arena()->alloc(cases.num_cases.size() * sizeof(int));
+        int *num_cases = (int*)amrex::The_Arena()->alloc(cases.num_cases.size() * sizeof(int));
+        Gpu::htod_memcpy(num_cases, cases.num_cases.data(), cases.num_cases.size() * sizeof(int));
+#else*/
+        int *num_candidates = new int[cases.num_cases.size()];
+        const int *num_cases = cases.num_cases.data();
+//#endif
+
+        // first count up the number of candidates in each FIPS code, for each process
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+            for (int i = 0; i < np; i++) {
+                if (cases.num_cases[fips_ptr[i]]) num_candidates[fips_ptr[i]]++;
+            }
+        }
+        // sum up the number of candidates for each FIPS code
+        // FIXME: this is one reduction per FIPS code, which may be really excessive if we have a wide distribution of initial
+        // infections
+        int tot_num_infections = 0;
+        for (int i = 0; i < cases.num_cases.size(); i++) {
+            if (cases.num_cases[i]) {
+                int tot_num_candidates = num_candidates[i];
+                ParallelDescriptor::ReduceIntSum(tot_num_candidates);
+                AllPrint() << "Process " << MyProc() << " FIPS " << i << " cases " << cases.num_cases[i]
+                           << " candidates " << num_candidates[i] << " total " << tot_num_candidates << "\n";
+                num_candidates[i] = tot_num_candidates;
+                tot_num_infections += cases.num_cases[i];
+            }
+        }
+        const auto* lparm = getDiseaseParameters_d();
+        // infect with probability determined by the total number of candidates and infections
+        int num_infected = 0;
+        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+            auto& soa = ptile.GetStructOfArrays();
+            const auto np = ptile.numParticles();
+            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+            auto status_ptr = soa.GetIntData(IntIdx::status).data();
+            auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
+            auto incubation_period_ptr = soa.GetRealData(RealIdx::incubation_period).data();
+            auto infectious_period_ptr = soa.GetRealData(RealIdx::infectious_period).data();
+            auto symptomdev_period_ptr = soa.GetRealData(RealIdx::symptomdev_period).data();
+
+            //Gpu::DeviceScalar<int> num_infected_d(num_infected);
+            //int* num_infected_p = num_infected_d.dataPtr();
+
+            //ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            RandomEngine engine;
+            for (int i = 0; i < np; i++) {
+                auto cases_in_fips = num_cases[fips_ptr[i]];
+                if (cases_in_fips) {
+                    if (Random_int(num_candidates[fips_ptr[i]], engine) < cases_in_fips) {
+                        status_ptr[i] = Status::infected;
+                        counter_ptr[i] = 0;
+                        incubation_period_ptr[i] = RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
+                        infectious_period_ptr[i] = RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
+                        symptomdev_period_ptr[i] = RandomNormal(lparm->symptomdev_length_mean, lparm->symptomdev_length_std, engine);
+                        //*num_infected_p = 1;
+                        num_infected++;
+                    }
+                }
+            }//);
+            //Gpu::Device::streamSynchronize();
+            //num_infected += num_infected_d.dataValue();
+        }
+        AllPrint() << "Process " << MyProc() << " number infected " << num_infected << "\n";
+        ParallelDescriptor::ReduceIntSum(num_infected);
+        Print() << "Actual total number infected " << num_infected << " instead of " << tot_num_infections << " cases\n";
+    }
+
 }

@@ -112,9 +112,7 @@ void runAgent ()
     }
 
     CaseData cases;
-    if (params.ic_type == ICType::Census && params.initial_case_type == "file") {
-        cases.InitFromFile(params.case_filename);
-    }
+    if (params.initial_case_type == "file") cases.InitFromFile(params.case_filename);
 
     if (params.ic_type != ICType::UrbanPop) {
         geom = ExaEpi::Utils::get_geometry(demo, params);
@@ -172,12 +170,13 @@ void runAgent ()
             }
         } else if (params.ic_type == ICType::UrbanPop) {
             pc.initAgentsUrbanPop(urban_pop, params.nborhood_size, params.workgroup_size);
-            //ExaEpi::Initialization::setInitialCasesRandom(pc, unit_mf, FIPS_mf, comm_mf, params.num_initial_cases, demo);
+            if (params.initial_case_type == "file") pc.infectAgents(cases);
         }
     }
 
     ParallelContext::BarrierAll();
-    pc.writeAgentsFile("agents.csv");
+    std::string agents_fname = params.ic_type == ICType::Census ? "agents-census" : "agents-urbanpop";
+    pc.writeAgentsFile(agents_fname, -1);
 
     int  step_of_peak = 0;
     Long num_infected_peak = 0;
@@ -196,7 +195,10 @@ void runAgent ()
         BL_PROFILE_REGION("Evolution");
         for (int i = 0; i < params.nsteps; ++i)
         {
-            amrex::Print() << "Simulating day " << i << "\n";
+            if (i % 7 == 0) {
+                amrex::Print() << "Simulating day " << i << "\n";
+                pc.writeAgentsFile(agents_fname, i);
+            }
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 ExaEpi::IO::writePlotFile(pc, cur_time, i);

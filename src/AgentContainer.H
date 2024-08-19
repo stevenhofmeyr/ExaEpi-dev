@@ -21,6 +21,7 @@
 #include "DiseaseParm.H"
 #include "InteractionModelLibrary.H"
 #include "UrbanPopData.H"
+#include "CaseData.H"
 
 /*! \brief Derived class from ParticleContainer that defines agents and their functions */
 class AgentContainer
@@ -184,7 +185,9 @@ public:
     }
 
 
-    void writeAgentsFile(const std::string &fname);
+    void writeAgentsFile(const std::string &fname, int step_number);
+
+    void infectAgents (const CaseData &cases);
 
     // only defined for the Census initialization
     iMultiFab num_residents;    /*!< Number of residents in each community (grid cell);

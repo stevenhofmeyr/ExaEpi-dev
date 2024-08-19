@@ -7,6 +7,7 @@ import pandas as pd
 import matplotlib as mp
 import matplotlib.pyplot as plt
 import numpy as np
+import math
 
 x_scale = 0
 y_scale = 0
@@ -47,6 +48,8 @@ def plot_population(df, plotgrid, worklocs):
         df_locs = df[[col]]
         df_locs.insert(0, 'ones', int(1))
         df_counts = df_locs.groupby([col]).size()
+        # sorting ensures higher values show up over lower values
+        df_counts.sort_values(inplace=True)
         y = [int(s.split(',')[0]) for s in list(df_counts.index)]
         x = [int(s.split(',')[1]) for s in list(df_counts.index)]
         plt.xlabel('Grid x')
@@ -57,13 +60,21 @@ def plot_population(df, plotgrid, worklocs):
         df_counts = df_home_locs.groupby(['x-position', 'y-position']).size()
         y = [s[0] for s in list(df_counts.index)]
         x = [s[1] for s in list(df_counts.index)]
-        #plt.xlabel('Longitude')
-        #plt.ylabel('Latitude')
+        plt.xlabel('Particle position x')
+        plt.ylabel('Particle position y')
 
-    z = list(df_counts / 20)
+    #z = list(df_counts / 20)
     print("Plotting", len(x), "locations, with total count", sum(list(df_counts)))
 
-    plt.scatter(x, y, s=z, color='blue' if worklocs == False else 'green', alpha=0.3)
+    cmap = mp.colormaps['plasma']
+    #cmap = mp.colormaps['copper']
+    #cmap = mp.colormaps['cool']
+    max_count = 50000 #max(df_counts)
+    z = list(np.log(df_counts) / np.log(max_count))
+    #z = list(df_counts / max_count)
+    print("minz", min(z), "maxz", max(z))
+    #plt.scatter(x, y, s=z, color='blue' if worklocs == False else 'green', alpha=0.3)
+    plt.scatter(x, y, s=20, color=cmap(z),  alpha=1.0)
 
     plot_cities = True
     if plot_cities == True:
@@ -88,7 +99,12 @@ def plot_population(df, plotgrid, worklocs):
                plt.text(x, y, entry.city, color='black', weight='bold', variant='small-caps', ha='center', va='center')
 
     plt.tight_layout()
-    plt.savefig(args.files[0] + "-popluation.pdf")
+    out_fname = args.files[0] + "-population"
+    if worklocs == True:
+        out_fname += "-work"
+    else:
+        out_fname += "-home"
+    plt.savefig(out_fname + ".pdf")
 
 
 if __name__ == "__main__":
