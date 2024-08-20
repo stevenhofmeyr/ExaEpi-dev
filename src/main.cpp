@@ -195,10 +195,7 @@ void runAgent ()
         BL_PROFILE_REGION("Evolution");
         for (int i = 0; i < params.nsteps; ++i)
         {
-            if (i % 7 == 0) {
-                amrex::Print() << "Simulating day " << i << "\n";
-                pc.writeAgentsFile(agents_fname, i);
-            }
+            if (i % 7 == 0) pc.writeAgentsFile(agents_fname, i);
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 ExaEpi::IO::writePlotFile(pc, cur_time, i);
@@ -218,7 +215,9 @@ void runAgent ()
                 num_infected_peak = counts[1];
                 step_of_peak = i;
             }
+            auto delta_deaths = counts[4] - cumulative_deaths;
             cumulative_deaths = counts[4];
+            Print() << "Day " << i << ": infected " << counts[1] << " deaths " << delta_deaths << "\n";
 
             Real mmc[4] = {0, 0, 0, 0};
 #ifdef AMREX_USE_GPU

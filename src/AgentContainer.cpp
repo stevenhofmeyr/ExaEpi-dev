@@ -1203,15 +1203,15 @@ void AgentContainer::interactNight ( MultiFab& a_mask_behavior /*!< Masking beha
 
 void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
     BL_PROFILE("AgentContainer::writeAgentsFile");
-    Print() << "Writing agents to files " << fname + ".<i>\n";
     string my_fname = fname;
     if (step_number != -1) my_fname += ".s" + std::to_string(step_number);
     my_fname += "." + std::to_string(MyProc()) + ".tsv";
+    Print() << "Writing agents to files " << my_fname + "\n";
     std::ofstream outfs(my_fname);
     if (step_number == -1)
         outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\tfips\n";
     else
-        outfs << "#ID\thome\tstatus\n";
+        outfs << "#ID\tx-position\ty-position\thome\tstatus\n";
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev  = GetParticles(lev);
         int max_x = 0, max_y = 0;
@@ -1237,6 +1237,7 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
                 auto& agent = aos[i];
                 if (step_number != -1) {
                     outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
+                          << agent.pos(0) << "\t" << agent.pos(1) << "\t"
                           << home_i_ptr[i] << "," << home_j_ptr[i] << "\t" << status_ptr[i] << "\n";
                 } else {
                     outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
