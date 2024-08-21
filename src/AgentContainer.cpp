@@ -399,12 +399,20 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
 * In the non-UrbanPop version the communities are distributed uniformly across a 1.0 x 1.0 geometry.
 * With the UrbanPop data, we use the latitude and longitude of each block group as the position.
 */
-void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, const int nborhood_size, const int workgroup_size) {
+void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, UrbanPop::UrbanPopData &urban_pop,
+                                         const int nborhood_size, const int workgroup_size) {
     BL_PROFILE("initAgentsUrbanPop");
 
     ic_type = ExaEpi::ICType::UrbanPop;
     min_pos_x = ParticleGeom(0).ProbLo()[0];
     min_pos_y = ParticleGeom(0).ProbLo()[1];
+
+    unit_mf.define(ba, dm, 1, 0);
+    FIPS_mf.define(ba, dm, 2, 0);
+    comm_mf.define(ba, dm, 1, 0);
+    unit_mf.setVal(-1);
+    FIPS_mf.setVal(-1);
+    comm_mf.setVal(-1);
 
     // only a single level
     auto& particles  = GetParticles(0);
@@ -414,11 +422,16 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
         box_block_groups[block_group.box_i].push_back(block_group);
     }
     int tot_np = 0;
+    const Box& domain = Geom(0).Domain();
     // don't tile here because the UrbanPop data is stored in a non-tiled, per box basis.
     for (MFIter mfi = MakeMFIter(0, false); mfi.isValid(); ++mfi) {
+        auto unit_arr = unit_mf[mfi].array();
+        auto FIPS_arr = FIPS_mf[mfi].array();
+        auto comm_arr = comm_mf[mfi].array();
         int box_i = mfi.index();
         int tile_i = mfi.LocalTileIndex();
         auto bx = mfi.tilebox();
+
         auto &ptile = particles[std::make_pair(box_i, tile_i)];
         auto &block_groups = box_block_groups[box_i];
         if (block_groups.empty()) continue;
@@ -442,7 +455,6 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-        auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
 
         int my_proc = MyProc();
         int block_pi = 0;
@@ -456,6 +468,15 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
             // set number of nbhoods to get each nbhood as close to nborhood_size as possible
             int num_nbhoods = std::max(std::round((double)n / nborhood_size), 1.0);
             auto people = &block_group.people[0];
+            int64_t geoid = people[0].h_geoid;
+            // FIPS is the first 5 digits of the GEOID, which is 12 digits
+            int64_t fips = (geoid / 1e7);
+            // Census tract is the 6 digits after the FIPS code
+            int64_t tract = (geoid - (fips * 1e7)) / 10;
+            //Print() << "GEOID " << geoid << " FIPS " << fips << " tract " << tract << "\n";
+            FIPS_arr(x, y, 0, 0) = (int)fips;
+            FIPS_arr(x, y, 0, 1) = (int)tract;
+            comm_arr(x, y, 0) = (int)domain.index(IntVect(AMREX_D_DECL(x, y, 0)));
             RandomEngine engine;
             // randomly shuffle work locations in this block group (Fisher-Yates shuffle)
             // FIXME: this should be done in GPU, but not sure how to synchronize at AMREX level
@@ -513,8 +534,6 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
                 if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
                 else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
                 else school_ptr[pi] = -1;
-                // FIPS is the first 5 digits of the GEOID, which is 12 digits
-                fips_ptr[pi] = (int)(people[i].h_geoid / 10000000);
             });
             // separate loop for setting the workgroup and randomizing workgroups
             for (int i = 0; i < n; i++) {
@@ -540,7 +559,16 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
             });
             block_pi += n;
         }
-        //AllPrint() << MyProc() << ": box " << bx << " box_i " << box_i << " population " << ptile.size() << "\n";
+#ifdef DEBUG
+        /*
+        ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, RandomEngine const& engine) noexcept {
+            int community = (int)domain.index(IntVect(AMREX_D_DECL(i, j, k)));
+            //if (community >= Ncommunity) { return; }
+            if (FIPS_arr(i, j, k, 0) != -1) {
+                Print() << "community " << community << " " << i << " " << j << " " << k << " " << FIPS_arr(i, j, k, 0) << "\n";
+            }
+        });*/
+#endif
     }
     AllPrint() << "Process " << MyProc() << " has " << particles.size() << " boxes with a total of "
                << tot_np << " particles for " << urban_pop.block_groups.size() << " block groups\n";
@@ -1244,7 +1272,6 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
             auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
             auto school_ptr = soa.GetIntData(IntIdx::school).data();
             auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
             auto status_ptr = soa.GetIntData(IntIdx::status).data();
             for (int i = 0; i < np; i++) {
                 auto& agent = aos[i];
@@ -1258,8 +1285,7 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
                           << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
                           << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
                           << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
-                          << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\t"
-                          << fips_ptr[i] << "\n";
+                          << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\n";
                 }
                 max_x = std::max(max_x, home_i_ptr[i]);
                 max_y = std::max(max_y, home_j_ptr[i]);
@@ -1302,39 +1328,28 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
 
 void AgentContainer::infectAgents (const CaseData &cases) {
     BL_PROFILE("AgentContainer::infectAgents");
-    /*
-    // get the total number of candidates to be infected
-    amrex::ReduceOps<ReduceOpSum> reduce_ops;
-    auto r = ParticleReduce<ReduceData<int>>(*this, [=] AMREX_GPU_DEVICE (const SuperParticleType& p) noexcept -> GpuTuple<int> {
-        int s = 0;
-        if (cases.num_cases[p.idata(IntIdx::fips)]) s = 1;
-        return {s};
-    }, reduce_ops);
-    int counts = amrex::get<0>(r);
-    ParallelDescriptor::ReduceIntSum(counts);
-    AllPrint() << "reduction count " << counts << "\n";
-    */
     // infect with given probability
     // FIXME: this isn't accurate enough. Need to actually randomly pick agents until we have enough
     for (int lev = 0; lev <= finestLevel(); ++lev) {
         auto& plev  = GetParticles(lev);
-/*#ifdef AMREX_USE_GPU
-        int *num_candidates = (int*)amrex::The_Arena()->alloc(cases.num_cases.size() * sizeof(int));
-        int *num_cases = (int*)amrex::The_Arena()->alloc(cases.num_cases.size() * sizeof(int));
-        Gpu::htod_memcpy(num_cases, cases.num_cases.data(), cases.num_cases.size() * sizeof(int));
-#else*/
         int *num_candidates = new int[cases.num_cases.size()];
+        memset(num_candidates, 0, sizeof(int) * cases.num_cases.size());
         const int *num_cases = cases.num_cases.data();
-//#endif
-
         // first count up the number of candidates in each FIPS code, for each process
         for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
             auto& soa = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
-            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+            auto FIPS_arr = FIPS_mf[mfi].array();
+
+            //ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
             for (int i = 0; i < np; i++) {
-                if (cases.num_cases[fips_ptr[i]]) num_candidates[fips_ptr[i]]++;
+                int fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
+                if (fips == -1)
+                    Abort("FIPS code not set for " + std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
+                if (cases.num_cases[fips]) num_candidates[fips]++;
             }
         }
         // sum up the number of candidates for each FIPS code
@@ -1358,34 +1373,31 @@ void AgentContainer::infectAgents (const CaseData &cases) {
             auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
             auto& soa = ptile.GetStructOfArrays();
             const auto np = ptile.numParticles();
-            auto fips_ptr = soa.GetIntData(IntIdx::fips).data();
+            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
             auto status_ptr = soa.GetIntData(IntIdx::status).data();
             auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
             auto incubation_period_ptr = soa.GetRealData(RealIdx::incubation_period).data();
             auto infectious_period_ptr = soa.GetRealData(RealIdx::infectious_period).data();
             auto symptomdev_period_ptr = soa.GetRealData(RealIdx::symptomdev_period).data();
-
-            //Gpu::DeviceScalar<int> num_infected_d(num_infected);
-            //int* num_infected_p = num_infected_d.dataPtr();
-
-            //ParallelForRNG(np, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            auto FIPS_arr = FIPS_mf[mfi].array();
             RandomEngine engine;
             for (int i = 0; i < np; i++) {
-                auto cases_in_fips = num_cases[fips_ptr[i]];
+                auto fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
+                if (fips == -1)
+                    Abort("FIPS code not set for " + std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
+                auto cases_in_fips = num_cases[fips];
                 if (cases_in_fips) {
-                    if (Random_int(num_candidates[fips_ptr[i]], engine) < cases_in_fips) {
+                    if (Random_int(num_candidates[fips], engine) < cases_in_fips) {
                         status_ptr[i] = Status::infected;
                         counter_ptr[i] = 0;
                         incubation_period_ptr[i] = RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
                         infectious_period_ptr[i] = RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
                         symptomdev_period_ptr[i] = RandomNormal(lparm->symptomdev_length_mean, lparm->symptomdev_length_std, engine);
-                        //*num_infected_p = 1;
                         num_infected++;
                     }
                 }
-            }//);
-            //Gpu::Device::streamSynchronize();
-            //num_infected += num_infected_d.dataValue();
+            }
         }
         AllPrint() << "Process " << MyProc() << " number infected " << num_infected << "\n";
         ParallelDescriptor::ReduceIntSum(num_infected);

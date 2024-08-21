@@ -114,7 +114,7 @@ void runAgent ()
     CaseData cases;
     if (params.initial_case_type == "file") cases.InitFromFile(params.case_filename);
 
-    if (params.ic_type != ICType::UrbanPop) {
+    if (params.ic_type == ICType::Census) {
         geom = ExaEpi::Utils::get_geometry(demo, params);
         ba.define(geom.Domain());
         ba.maxSize(params.max_grid_size);
@@ -169,7 +169,7 @@ void runAgent ()
                 ExaEpi::Initialization::setInitialCasesRandom(pc, params.num_initial_cases, demo);
             }
         } else if (params.ic_type == ICType::UrbanPop) {
-            pc.initAgentsUrbanPop(urban_pop, params.nborhood_size, params.workgroup_size);
+            pc.initAgentsUrbanPop(ba, dm, urban_pop, params.nborhood_size, params.workgroup_size);
             if (params.initial_case_type == "file") pc.infectAgents(cases);
         }
     }
@@ -197,15 +197,11 @@ void runAgent ()
         {
             //if (i % 7 == 0) pc.writeAgentsFile(agents_fname, i);
 
-            if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
-                ExaEpi::IO::writePlotFile(pc, cur_time, i);
-            }
+            if ((params.plot_int > 0) && (i % params.plot_int == 0)) ExaEpi::IO::writePlotFile(pc, cur_time, i);
 
-            if ((params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0)) {
+            if (params.ic_type == ICType::Census && (params.aggregated_diag_int > 0) && (i % params.aggregated_diag_int == 0))
                 ExaEpi::IO::writeFIPSData(pc, demo, params.aggregated_diag_prefix, i);
-            }
 
-            //Print() << "update status\n";
             // Update agents' disease status
             pc.updateStatus(disease_stats);
             ParallelContext::BarrierAll();
@@ -302,18 +298,18 @@ void runAgent ()
                 pc.shelterStop();
             }
 
-            ParallelContext::BarrierAll(); //Print() << "morning commute\n";
+            ParallelContext::BarrierAll();
             // Typical day
             pc.morningCommute(mask_behavior);
-            ParallelContext::BarrierAll(); //Print() << "interact day\n";
+            ParallelContext::BarrierAll();
             pc.interactDay(mask_behavior);
-            ParallelContext::BarrierAll(); //Print() << "evening commute\n";
+            ParallelContext::BarrierAll();
             pc.eveningCommute(mask_behavior);
-            ParallelContext::BarrierAll(); //Print() << "interact evening\n";
+            ParallelContext::BarrierAll();
             pc.interactEvening(mask_behavior);
-            ParallelContext::BarrierAll(); //Print() << "interact night\n";
+            ParallelContext::BarrierAll();
             pc.interactNight(mask_behavior);
-            ParallelContext::BarrierAll(); //Print() << "infect agents\n";
+            ParallelContext::BarrierAll();
             // Infect agents based on their interactions
             pc.infectAgents();
 

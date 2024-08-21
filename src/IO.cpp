@@ -49,11 +49,9 @@ void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container 
     output_mf.setVal(0.0);
     pc.generateCellData(output_mf);
 
-    if (pc.ic_type == ICType::Census) {
-        amrex::Copy(output_mf, pc.unit_mf, 0, 5, 1, 0);
-        amrex::Copy(output_mf, pc.FIPS_mf, 0, 6, 2, 0);
-        amrex::Copy(output_mf, pc.comm_mf, 0, 8, 1, 0);
-    }
+    amrex::Copy(output_mf, pc.unit_mf, 0, 5, 1, 0);
+    amrex::Copy(output_mf, pc.FIPS_mf, 0, 6, 2, 0);
+    amrex::Copy(output_mf, pc.comm_mf, 0, 8, 1, 0);
 
     amrex::Vector<int> write_real_comp;
     amrex::Vector<int> write_int_comp;
@@ -70,15 +68,9 @@ void writePlotFile (const AgentContainer& pc,   /*!< Agent (particle) container 
         write_int_comp = {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1};
     }
 
-    if (pc.ic_type == ICType::Census) {
-        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
-                                {"total", "never_infected", "infected", "immune", "susceptible", "unit", "FIPS", "Tract", "comm"},
-                                pc.ParticleGeom(0), cur_time, step);
-    } else {
-        WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
-                                {"total", "never_infected", "infected", "immune", "susceptible"},
-                                 pc.ParticleGeom(0), cur_time, step);
-    }
+    WriteSingleLevelPlotfile(amrex::Concatenate("plt", step, 5), output_mf,
+                            {"total", "never_infected", "infected", "immune", "susceptible", "unit", "FIPS", "Tract", "comm"},
+                            pc.ParticleGeom(0), cur_time, step);
 
     pc.WritePlotFile(amrex::Concatenate("plt", step, 5), "agents",
                      write_real_comp, write_int_comp, real_comp_names, int_comp_names);

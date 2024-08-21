@@ -143,7 +143,6 @@ void read_workerflow (const DemographicData& demo,  /*!< Demographic data */
         auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
         auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
         auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
-        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
         auto np = soa.numParticles();
 
