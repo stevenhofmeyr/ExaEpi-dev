@@ -195,7 +195,7 @@ void runAgent ()
         BL_PROFILE_REGION("Evolution");
         for (int i = 0; i < params.nsteps; ++i)
         {
-            if (i % 7 == 0) pc.writeAgentsFile(agents_fname, i);
+            //if (i % 7 == 0) pc.writeAgentsFile(agents_fname, i);
 
             if ((params.plot_int > 0) && (i % params.plot_int == 0)) {
                 ExaEpi::IO::writePlotFile(pc, cur_time, i);

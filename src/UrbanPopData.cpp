@@ -70,6 +70,10 @@ void Person::set(int64_t h_geoid, int64_t w_geoid, int work_x, int work_y, int p
     this->pr_commute = pr_commute;
 }
 
+bool Person::is_worker() {
+    return this->pr_emp_stat == 2 || this->pr_emp_stat == 3;
+}
+
 bool BlockGroup::read(istringstream &iss) {
     const int NTOKS = 6;
 

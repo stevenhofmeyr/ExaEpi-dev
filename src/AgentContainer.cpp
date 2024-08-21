@@ -452,11 +452,25 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
             int y = block_group.y;
             Real px = (Real)x * dx[0] + min_pos_x;
             Real py = (Real)y * dx[1] + min_pos_y;
+            int n = block_group.people.size();
             // set number of nbhoods to get each nbhood as close to nborhood_size as possible
-            int num_nbhoods = std::max(std::round((double)block_group.people.size() / nborhood_size), 1.0);
+            int num_nbhoods = std::max(std::round((double)n / nborhood_size), 1.0);
             auto people = &block_group.people[0];
-            amrex::ParallelForRNG(block_group.people.size(),
-              [=] AMREX_GPU_DEVICE (int i, amrex::RandomEngine const& engine) noexcept {
+            RandomEngine engine;
+            // randomly shuffle work locations in this block group (Fisher-Yates shuffle)
+            // FIXME: this should be done in GPU, but not sure how to synchronize at AMREX level
+            //ParallelForRNG(block_group.people.size(), [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+            for (int i = n - 1; i > 0; i--) {
+                auto &person = people[i];
+                if (!person.is_worker()) continue;
+                int target = Random_int(i, engine);
+                auto &target_person = people[target];
+                if (!target_person.is_worker()) continue;
+                std::swap(person.work_x, target_person.work_x);
+                std::swap(person.work_y, target_person.work_y);
+                std::swap(person.w_geoid, target_person.w_geoid);
+            }
+            ParallelForRNG(n, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
                 auto &person = people[i];
                 int pi = block_pi + i;
                 auto &agent = aos[pi];
@@ -502,19 +516,18 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
                 // FIPS is the first 5 digits of the GEOID, which is 12 digits
                 fips_ptr[pi] = (int)(people[i].h_geoid / 10000000);
             });
-            amrex::RandomEngine engine;
-            // separate loop for setting the workgroup since I'm not sure how to use an unordered_map in GPU code
-            for (int i = 0; i < block_group.people.size(); i++) {
+            // separate loop for setting the workgroup and randomizing workgroups
+            for (int i = 0; i < n; i++) {
                 auto &person = block_group.people[i];
                 int pi = block_pi + i;
-                if (person.pr_emp_stat == 2 || person.pr_emp_stat == 3) {
+                if (person.is_worker()) {
                     int num_workgroups = max(round(urban_pop.block_group_workers[person.w_geoid] / workgroup_size), 1.0);
-                    // workgroups are at least 1 to indicate worker, not working from home
+                    // workgroups are at least 1 to indicate worker
                     workgroup_ptr[pi] = Random_int(num_workgroups, engine) + 1;
                 }
             }
             // loop to set the household neighborhoods
-            amrex::ParallelFor(block_group.people.size(), [=] AMREX_GPU_DEVICE (int i) noexcept {
+            ParallelFor(n, [=] AMREX_GPU_DEVICE (int i) noexcept {
                 int pi = block_pi + i;
                 if (nborhood_ptr[pi] == -1) {
                     for (int j = pi - 1; j >= 0; j--) {
@@ -525,7 +538,7 @@ void AgentContainer::initAgentsUrbanPop (UrbanPop::UrbanPopData &urban_pop, cons
                     }
                 }
             });
-            block_pi += block_group.people.size();
+            block_pi += n;
         }
         //AllPrint() << MyProc() << ": box " << bx << " box_i " << box_i << " population " << ptile.size() << "\n";
     }

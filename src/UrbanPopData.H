@@ -23,6 +23,8 @@ struct Person {
 
     void set(int64_t geoid, int64_t w_geoid, int work_x, int work_y, int p_id, int h_id, int pr_age,
              int pr_emp_stat, int pr_commute);
+
+    bool is_worker();
 };
 
 struct BlockGroup {
