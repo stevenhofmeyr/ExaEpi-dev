@@ -1,8 +1,12 @@
 agent.ic_type = "census"
-agent.census_filename = "../../data/CensusData/CA.dat"
-agent.workerflow_filename = "../../data/CensusData/CA-wf.bin"
+agent.census_filename = "../../data/CensusData/MA.dat"
+agent.workerflow_filename = "../../data/CensusData/MA-wf.dat"
+
 agent.initial_case_type = "file"
 agent.case_filename = "../../data/CaseData/July4.cases"
+
+#agent.initial_case_type = "random"
+#agent.num_initial_cases = 5
 
 agent.nsteps = 120
 agent.plot_int = 10
@@ -10,6 +14,12 @@ agent.random_travel_int = 24
 
 agent.aggregated_diag_int = -1
 agent.aggregated_diag_prefix = "cases"
+
+#agent.shelter_start = 7
+#agent.shelter_length = 30
+#agent.shelter_compliance = 0.85
+#agent.immune_length_mean = 180
+#agent.immune_length_std = 60
 
 contact.pSC  = 0.2
 contact.pCO  = 1.45
