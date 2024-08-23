@@ -44,16 +44,10 @@ void randomShuffle (std::vector<int>& vec /*!< Vector to be shuffled */)
 }
 
 AMREX_GPU_DEVICE AMREX_FORCE_INLINE
-void set_particle_pos(Real &p1, Real &p2, int x, int y, Real dx, Real dy, short _ic_type, Real min_pos_x, Real min_pos_y) {
-    if (_ic_type == ExaEpi::ICType::Census) {
-        p1 = ((Real)x + 0.5_rt) * dx;
-        p2 = ((Real)y + 0.5_rt) * dy;
-    } else if (_ic_type == ExaEpi::ICType::UrbanPop) {
-        p1 = (Real)x * dx + min_pos_x;
-        p2 = (Real)y * dy + min_pos_y;
-    } else {
-        Abort("ic_type not supported");
-    }
+void set_particle_pos(AgentContainer::ParticleType &p, int x, int y, const GpuArray<Real, AMREX_SPACEDIM> &dx,
+                      const GpuArray<Real, AMREX_SPACEDIM> &min_pos) {
+    p.pos(0) = ((Real)x + 0.5_rt) * dx[0] + min_pos[0];
+    p.pos(1) = ((Real)y + 0.5_rt) * dx[1] + min_pos[1];
 }
 
 /*! \brief Initialize agents for ExaEpi::ICType::Census
@@ -260,7 +254,6 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
 
         auto counter_ptr = soa.GetRealData(RealIdx::disease_counter).data();
         auto timer_ptr = soa.GetRealData(RealIdx::treatment_timer).data();
-        auto dx = ParticleGeom(0).CellSizeArray();
         auto myproc = MyProc();
 
         Long pid;
@@ -274,6 +267,9 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
         AMREX_ALWAYS_ASSERT_WITH_MESSAGE(
             static_cast<Long>(pid + nagents) < LastParticleID,
             "Error: overflow on agent id numbers!");
+
+        const auto cell_size_array = Geom(0).CellSizeArray();
+        const auto prob_lo_array = Geom(0).ProbLoArray();
 
         amrex::ParallelForRNG(bx, ncomp, [=] AMREX_GPU_DEVICE (int i, int j, int k, int n, amrex::RandomEngine const& engine) noexcept
         {
@@ -361,11 +357,9 @@ void AgentContainer::initAgentsCensus (BoxArray &ba, DistributionMapping &dm, De
                     }
                 }
 
-                agent.id()  = pid+ip;
+                agent.id()  = pid + ip;
                 agent.cpu() = myproc;
-                agent.pos(0) = ((Real)i + 0.5_rt) * dx[0];
-                agent.pos(1) = ((Real)j + 0.5_rt) * dx[1];
-
+                set_particle_pos(agent, i, j, cell_size_array, prob_lo_array);
                 status_ptr[ip] = 0;
                 counter_ptr[ip] = 0.0_rt;
                 timer_ptr[ip] = 0.0_rt;
@@ -404,8 +398,6 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
     BL_PROFILE("initAgentsUrbanPop");
 
     ic_type = ExaEpi::ICType::UrbanPop;
-    min_pos_x = ParticleGeom(0).ProbLo()[0];
-    min_pos_y = ParticleGeom(0).ProbLo()[1];
 
     unit_mf.define(ba, dm, 1, 0);
     FIPS_mf.define(ba, dm, 2, 0);
@@ -423,24 +415,32 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
     }
     int tot_np = 0;
     const Box& domain = Geom(0).Domain();
+    auto cell_size_array = Geom(0).CellSizeArray();
+    auto prob_lo_array = Geom(0).ProbLoArray();
     // don't tile here because the UrbanPop data is stored in a non-tiled, per box basis.
     for (MFIter mfi = MakeMFIter(0, false); mfi.isValid(); ++mfi) {
         auto unit_arr = unit_mf[mfi].array();
         auto FIPS_arr = FIPS_mf[mfi].array();
         auto comm_arr = comm_mf[mfi].array();
-        int box_i = mfi.index();
-        int tile_i = mfi.LocalTileIndex();
+        int gid = mfi.index();
+        int tid = mfi.LocalTileIndex();
         auto bx = mfi.tilebox();
 
-        auto &ptile = particles[std::make_pair(box_i, tile_i)];
-        auto &block_groups = box_block_groups[box_i];
+        auto &block_groups = box_block_groups[gid];
         if (block_groups.empty()) continue;
         int tot_pop = 0;
         for (auto &block_group : block_groups) {
+            if (!bx.contains(IntVect(block_group.x, block_group.y))) {
+                AllPrint() << "Proc " << MyProc() << " box " << gid << " tile " << tid << " doesn't contain group "
+                           << block_group.geoid << " " << block_group.x << ", " << block_group.y << "\n";
+                Abort();
+            }
             tot_pop += block_group.people.size();
         }
+        if (!tot_pop) continue;
+        Print() << "box " << mfi.tilebox() << " population " << tot_pop << "\n";
+        auto &ptile = particles[std::make_pair(gid, tid)];
         ptile.resize(tot_pop);
-        auto dx = ParticleGeom(0).CellSizeArray();
         auto aos = &ptile.GetArrayOfStructs()[0];
         auto &soa = ptile.GetStructOfArrays();
         auto status_ptr = soa.GetIntData(IntIdx::status).data();
@@ -455,16 +455,31 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-
         int my_proc = MyProc();
         int block_pi = 0;
-        for (auto &block_group : block_groups) {
-            tot_np += block_group.people.size();
+
+        /*for (auto &block_group : block_groups) {
+            auto people = &block_group.people[0];
+            int n = block_group.people.size();
             int x = block_group.x;
             int y = block_group.y;
-            Real px = (Real)x * dx[0] + min_pos_x;
-            Real py = (Real)y * dx[1] + min_pos_y;
+            tot_np += n;
+            ParallelForRNG(n, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
+                auto &person = people[i];
+                int pi = block_pi + i;
+                auto &agent = aos[pi];
+                agent.id()  = person.p_id;
+                agent.cpu() = my_proc;
+                set_particle_pos(agent, x, y, cell_size_array, prob_lo_array);
+            });
+            block_pi += n;
+        }*/
+
+        for (auto &block_group : block_groups) {
             int n = block_group.people.size();
+            int x = block_group.x;
+            int y = block_group.y;
+            tot_np += n;
             // set number of nbhoods to get each nbhood as close to nborhood_size as possible
             int num_nbhoods = std::max(std::round((double)n / nborhood_size), 1.0);
             auto people = &block_group.people[0];
@@ -497,8 +512,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
                 auto &agent = aos[pi];
                 agent.id()  = person.p_id;
                 agent.cpu() = my_proc;
-                agent.pos(0) = px;
-                agent.pos(1) = py;
+                set_particle_pos(agent, x, y, cell_size_array, prob_lo_array);
 
                 status_ptr[pi] = 0;
                 counter_ptr[pi] = 0.0_rt;
@@ -561,17 +575,17 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         }
 #ifdef DEBUG
         /*
-        ParallelForRNG(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k, RandomEngine const& engine) noexcept {
+        ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
             int community = (int)domain.index(IntVect(AMREX_D_DECL(i, j, k)));
-            //if (community >= Ncommunity) { return; }
-            if (FIPS_arr(i, j, k, 0) != -1) {
+            if (FIPS_arr(i, j, k, 0) != -1)
                 Print() << "community " << community << " " << i << " " << j << " " << k << " " << FIPS_arr(i, j, k, 0) << "\n";
-            }
         });*/
 #endif
     }
     AllPrint() << "Process " << MyProc() << " has " << particles.size() << " boxes with a total of "
                << tot_np << " particles for " << urban_pop.block_groups.size() << " block groups\n";
+    AllPrint() << "numParticlesOutOfRange " << numParticlesOutOfRange(*this, 0) << "\n";
+    AMREX_ALWAYS_ASSERT(OK());
 }
 
 /*! \brief Send agents on a random walk around the neighborhood
@@ -620,7 +634,8 @@ void AgentContainer::moveAgentsToWork ()
 
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
-        const auto dx = Geom(lev).CellSizeArray();
+        const auto cell_size_array = Geom(lev).CellSizeArray();
+        const auto prob_lo_array = Geom(0).ProbLoArray();
         auto& plev  = GetParticles(lev);
 
 #ifdef AMREX_USE_OMP
@@ -639,13 +654,8 @@ void AgentContainer::moveAgentsToWork ()
             auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
             auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
 
-            short _ic_type = ic_type;
-            Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
-
-            amrex::ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
-            {
-                ParticleType& p = pstruct[ip];
-                set_particle_pos(p.pos(0), p.pos(1), work_i_ptr[ip], work_j_ptr[ip], dx[0], dx[1], _ic_type, _min_pos_x, _min_pos_y);
+            ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+                set_particle_pos(pstruct[ip], work_i_ptr[ip], work_j_ptr[ip], cell_size_array, prob_lo_array);
             });
         }
     }
@@ -663,7 +673,8 @@ void AgentContainer::moveAgentsToHome ()
 
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
-        const auto dx = Geom(lev).CellSizeArray();
+        const auto cell_size_array = Geom(lev).CellSizeArray();
+        const auto prob_lo_array = Geom(lev).ProbLoArray();
         auto& plev  = GetParticles(lev);
 
 #ifdef AMREX_USE_OMP
@@ -681,13 +692,9 @@ void AgentContainer::moveAgentsToHome ()
             auto& soa = ptile.GetStructOfArrays();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            short _ic_type = ic_type;
-            Real _min_pos_x = min_pos_x, _min_pos_y = min_pos_y;
 
-            amrex::ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
-            {
-                ParticleType& p = pstruct[ip];
-                set_particle_pos(p.pos(0), p.pos(1), home_i_ptr[ip], home_j_ptr[ip], dx[0], dx[1], _ic_type, _min_pos_x, _min_pos_y);
+            ParallelFor(np, [=] AMREX_GPU_DEVICE (int ip) noexcept {
+                set_particle_pos(pstruct[ip], home_i_ptr[ip], home_j_ptr[ip], cell_size_array, prob_lo_array);
             });
         }
     }
@@ -703,6 +710,10 @@ void AgentContainer::moveRandomTravel ()
 {
     BL_PROFILE("AgentContainer::moveRandomTravel");
 
+    if (ic_type == ExaEpi::ICType::UrbanPop) {
+        Print() << "random travel not yet implement for urbanpop\n";
+        return;
+    }
     for (int lev = 0; lev <= finestLevel(); ++lev)
     {
         auto& plev  = GetParticles(lev);
@@ -1253,81 +1264,79 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
         outfs << "#ID\tx-position\ty-position\tfamily\tage\thome\twork\tnbh\tschl\tworkg\tfips\n";
     else
         outfs << "#ID\tx-position\ty-position\thome\tstatus\n";
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev  = GetParticles(lev);
-        int max_x = 0, max_y = 0;
+    auto& plev  = GetParticles(0);
+    int max_x = 0, max_y = 0;
+    for (MFIter mfi = MakeMFIter(0, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        int gid = mfi.index();
+        int tid = mfi.LocalTileIndex();
+        auto& ptile = plev[std::make_pair(gid, tid)];
+        auto& soa = ptile.GetStructOfArrays();
+        auto& aos = ptile.GetArrayOfStructs();
+        const auto np = ptile.numParticles();
+        auto family_ptr = soa.GetIntData(IntIdx::family).data();
+        auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
+        auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+        auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+        auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
+        auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
+        auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
+        auto school_ptr = soa.GetIntData(IntIdx::school).data();
+        auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto status_ptr = soa.GetIntData(IntIdx::status).data();
+        for (int i = 0; i < np; i++) {
+            auto& agent = aos[i];
+            if (step_number != -1) {
+                outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
+                        << agent.pos(0) << "\t" << agent.pos(1) << "\t"
+                        << home_i_ptr[i] << "," << home_j_ptr[i] << "\t" << status_ptr[i] << "\n";
+            } else {
+                outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
+                        << agent.pos(0) << "\t" << agent.pos(1) << "\t"
+                        << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
+                        << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
+                        << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
+                        << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\n";
+            }
+            max_x = std::max(max_x, home_i_ptr[i]);
+            max_y = std::max(max_y, home_j_ptr[i]);
+        }
+    }
+#ifdef DEBUG
+    if (step_number == -1) {
+        Vector<Vector<int>> communities(max_x + 1, Vector<int>(max_y + 1, 0));
+        int tot_np = 0;
         for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
             int gid = mfi.index();
             int tid = mfi.LocalTileIndex();
+            //AllPrint() << MyProc() << ": gid " << gid << " tid " << tid << "\n";
             auto& ptile = plev[std::make_pair(gid, tid)];
             auto& soa = ptile.GetStructOfArrays();
             auto& aos = ptile.GetArrayOfStructs();
             const auto np = ptile.numParticles();
-            auto family_ptr = soa.GetIntData(IntIdx::family).data();
-            auto age_group_ptr = soa.GetIntData(IntIdx::age_group).data();
             auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
             auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            auto work_i_ptr = soa.GetIntData(IntIdx::work_i).data();
-            auto work_j_ptr = soa.GetIntData(IntIdx::work_j).data();
-            auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
-            auto school_ptr = soa.GetIntData(IntIdx::school).data();
-            auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
-            auto status_ptr = soa.GetIntData(IntIdx::status).data();
             for (int i = 0; i < np; i++) {
                 auto& agent = aos[i];
-                if (step_number != -1) {
-                    outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
-                          << agent.pos(0) << "\t" << agent.pos(1) << "\t"
-                          << home_i_ptr[i] << "," << home_j_ptr[i] << "\t" << status_ptr[i] << "\n";
-                } else {
-                    outfs << agent.id() << "\t" << std::fixed << std::setprecision(8)
-                          << agent.pos(0) << "\t" << agent.pos(1) << "\t"
-                          << family_ptr[i] << "\t" << age_group_ptr[i] << "\t"
-                          << home_i_ptr[i] << "," << home_j_ptr[i] << "\t"
-                          << work_i_ptr[i] << "," << work_j_ptr[i] << "\t"
-                          << nborhood_ptr[i] << "\t" << school_ptr[i] << "\t" << workgroup_ptr[i] << "\n";
-                }
-                max_x = std::max(max_x, home_i_ptr[i]);
-                max_y = std::max(max_y, home_j_ptr[i]);
+                communities[home_i_ptr[i]][home_j_ptr[i]]++;
+            }
+            tot_np += np;
+        }
+        string my_fname_communities = fname + ".communities." + std::to_string(MyProc()) + ".tsv";
+        std::ofstream outfs_communities(my_fname_communities);
+        for (int x = 0; x <= max_x; x++) {
+            for (int y = 0; y <= max_y; y++) {
+                if (communities[x][y] > 0) outfs_communities << x << "\t" << y << "\t" << communities[x][y] << "\n";
             }
         }
-#ifdef DEBUG
-        if (step_number == -1) {
-            Vector<Vector<int>> communities(max_x + 1, Vector<int>(max_y + 1, 0));
-            int tot_np = 0;
-            for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-                int gid = mfi.index();
-                int tid = mfi.LocalTileIndex();
-                //AllPrint() << MyProc() << ": gid " << gid << " tid " << tid << "\n";
-                auto& ptile = plev[std::make_pair(gid, tid)];
-                auto& soa = ptile.GetStructOfArrays();
-                auto& aos = ptile.GetArrayOfStructs();
-                const auto np = ptile.numParticles();
-                auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-                auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-                for (int i = 0; i < np; i++) {
-                    auto& agent = aos[i];
-                    communities[home_i_ptr[i]][home_j_ptr[i]]++;
-                }
-                tot_np += np;
-            }
-            string my_fname_communities = fname + ".communities." + std::to_string(MyProc()) + ".tsv";
-            std::ofstream outfs_communities(my_fname_communities);
-            for (int x = 0; x <= max_x; x++) {
-                for (int y = 0; y <= max_y; y++) {
-                    if (communities[x][y] > 0) outfs_communities << x << "\t" << y << "\t" << communities[x][y] << "\n";
-                }
-            }
-            outfs_communities.close();
-            AllPrint() << "tot np " << tot_np << "\n";
-        }
-#endif
+        outfs_communities.close();
+        AllPrint() << "tot np " << tot_np << "\n";
     }
+#endif
     outfs.close();
 }
 
-void AgentContainer::infectAgents (const CaseData &cases) {
-    BL_PROFILE("AgentContainer::infectAgents");
+void AgentContainer::setInitialInfections (const CaseData &cases) {
+    BL_PROFILE("AgentContainer::setInitialInfections");
     // infect with given probability
     // FIXME: this isn't accurate enough. Need to actually randomly pick agents until we have enough
     for (int lev = 0; lev <= finestLevel(); ++lev) {

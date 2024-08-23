@@ -84,8 +84,8 @@ bool BlockGroup::read(istringstream &iss) {
         if (tokens.size() != NTOKS)
             throw runtime_error("Incorrect number of tokens, expected " + to_string(NTOKS) + " got " + to_string(tokens.size()));
         geoid = stol(tokens[0]);
-        latitude = stof(tokens[1]);
-        longitude = stof(tokens[2]);
+        lat = stof(tokens[1]);
+        lng = stof(tokens[2]);
         file_offset = stol(tokens[3]);
         int population = stoi(tokens[4]);
         num_workers = stoi(tokens[5]);
@@ -98,7 +98,7 @@ bool BlockGroup::read(istringstream &iss) {
     return true;
 }
 
-bool BlockGroup::read_people(ifstream &f, float min_lat, float min_long, float gspacing_x, float gspacing_y) {
+bool BlockGroup::read_people(ifstream &f, float min_lng, float min_lat, float gspacing_x, float gspacing_y) {
     string buf;
     num_employed = 0;
     num_military = 0;
@@ -120,8 +120,8 @@ bool BlockGroup::read_people(ifstream &f, float min_lat, float min_long, float g
         int work_y = -1;
         if (agent.pr_emp_stat == 2 || agent.pr_emp_stat == 3) {
             AMREX_ALWAYS_ASSERT(agent.w_lat != -1 && agent.w_long != -1);
-            work_x = (agent.w_lat - min_lat) / gspacing_x;
-            work_y = (agent.w_long - min_long) / gspacing_y;
+            work_x = (agent.w_long - min_lng) / gspacing_x;
+            work_y = (agent.w_lat - min_lat) / gspacing_y;
         }
         people[i].set(agent.h_geoid, agent.w_geoid, work_x, work_y, agent.p_id, agent.h_id, agent.pr_age, agent.pr_emp_stat,
                       agent.pr_commute);
@@ -156,31 +156,31 @@ static Vector<BlockGroup> read_block_groups_file(const string &fname) {
 void UrbanPopData::construct_geom (const string &fname, Geometry &geom, DistributionMapping &dm, BoxArray &ba) {
     auto all_block_groups = read_block_groups_file(fname);
     min_lat = 1000;
-    min_long = 1000;
+    min_lng = 1000;
     float max_lat = -1000;
-    float max_long = -1000;
+    float max_lng = -1000;
     block_group_workers.clear();
     for (auto &block_group : all_block_groups) {
-        max_lat = max(block_group.latitude, max_lat);
-        max_long = max(block_group.longitude, max_long);
-        min_lat = min(block_group.latitude, min_lat);
-        min_long = min(block_group.longitude, min_long);
+        min_lng = min(block_group.lng, min_lng);
+        max_lng = max(block_group.lng, max_lng);
+        min_lat = min(block_group.lat, min_lat);
+        max_lat = max(block_group.lat, max_lat);
         block_group_workers[block_group.geoid] = block_group.num_workers;
     }
 
     // grid spacing is 1/10th minute of arc at the equator, which is about 0.12 regular miles
     float gspacing = 0.1 / 60.0;
     // add a margin
+    min_lng -= gspacing;
+    max_lng += gspacing;
     min_lat -= gspacing;
     max_lat += gspacing;
-    min_long -= gspacing;
-    max_long += gspacing;
 
     // the boundaries of the problem in real coordinates, i.e. latituted and longitude.
-    RealBox rbox({AMREX_D_DECL(min_lat, min_long, 0)}, {AMREX_D_DECL(max_lat, max_long, 0)});
+    RealBox rbox({AMREX_D_DECL(min_lng, min_lat, 0)}, {AMREX_D_DECL(max_lng, max_lat, 0)});
     // the number of grid points in a direction
-    int grid_x = (max_lat - min_lat) / gspacing - 1;
-    int grid_y = (max_long - min_long) / gspacing - 1;
+    int grid_x = (max_lng - min_lng) / gspacing - 1;
+    int grid_y = (max_lat - min_lat) / gspacing - 1;
     // the grid that overlays the domain, with the grid size in x and y directions
     Box base_domain(IntVect(AMREX_D_DECL(0, 0, 0)), IntVect(AMREX_D_DECL(grid_x, grid_y, 0)));
     // lat/long is a spherical coordinate system
@@ -188,9 +188,9 @@ void UrbanPopData::construct_geom (const string &fname, Geometry &geom, Distribu
     // actual spacing (!= gspacing)
     gspacing_x = geom.CellSizeArray()[0];
     gspacing_y = geom.CellSizeArray()[1];
-    Print() << "Geographic area: (" << min_lat << ", " << min_long << ") " << max_lat << ", " << max_long << ")\n";
+    Print() << "Geographic area: (" << min_lng << ", " << min_lat << ") " << max_lng << ", " << max_lat << ")\n";
     Print() << "Base domain: " << geom.Domain() << "\n";
-    //Print() << "Geometry: " << geom << "\n";
+    Print() << "Geometry: " << geom << "\n";
     Print() << "Actual grid spacing: " << gspacing_x << ", "  << gspacing_y << "\n";
 
     // create a box array with a single box representing the domain
@@ -205,8 +205,8 @@ void UrbanPopData::construct_geom (const string &fname, Geometry &geom, Distribu
     for (auto &block_group : all_block_groups) {
         // FIXME: check that the x,y calculated here are unique
         // convert lat/long coords to grid coords
-        block_group.x = (block_group.latitude - min_lat) / gspacing_x;
-        block_group.y = (block_group.longitude - min_long) / gspacing_y;
+        block_group.x = (block_group.lng - min_lng) / gspacing_x;
+        block_group.y = (block_group.lat - min_lat) / gspacing_y;
         XYLoc xy_loc(block_group.x, block_group.y);
         auto it = xy_locs.find(xy_loc);
         if (it != xy_locs.end()) Abort("Found duplicate x,y location; need to decrease gspacing\n");
@@ -279,7 +279,7 @@ void UrbanPopData::InitFromFile (const string& fname, Geometry &geom, Distributi
     if (!f) amrex::Abort("Could not open file " + fname + "\n");
     for (auto &block_group : block_groups) {
         my_num_agents += block_group.people.size();
-        block_group.read_people(f, min_lat, min_long, gspacing_x, gspacing_y);
+        block_group.read_people(f, min_lng, min_lat, gspacing_x, gspacing_y);
         num_employed += block_group.num_employed;
         num_military += block_group.num_military;
         num_households += block_group.num_households;

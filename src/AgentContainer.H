@@ -188,7 +188,7 @@ public:
 
     void writeAgentsFile(const std::string &fname, int step_number);
 
-    void infectAgents (const CaseData &cases);
+    void setInitialInfections (const CaseData &cases);
 
     // only defined for the Census initialization
     iMultiFab num_residents;    /*!< Number of residents in each community (grid cell);
@@ -207,9 +207,6 @@ public:
     short ic_type;
 
 protected:
-
-    amrex::Real min_pos_x = 0;
-    amrex::Real min_pos_y = 0;
 
     int m_symptomatic_withdraw = 1;
 

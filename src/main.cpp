@@ -170,7 +170,7 @@ void runAgent ()
             }
         } else if (params.ic_type == ICType::UrbanPop) {
             pc.initAgentsUrbanPop(ba, dm, urban_pop, params.nborhood_size, params.workgroup_size);
-            if (params.initial_case_type == "file") pc.infectAgents(cases);
+            if (params.initial_case_type == "file") pc.setInitialInfections(cases);
         }
     }
 

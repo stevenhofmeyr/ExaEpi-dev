@@ -29,8 +29,8 @@ struct Person {
 
 struct BlockGroup {
     int64_t geoid;
-    float latitude;
-    float longitude;
+    float lng;
+    float lat;
     size_t file_offset;
     int box_i;
     int x;
@@ -42,14 +42,14 @@ struct BlockGroup {
     amrex::Vector<Person> people;
 
     bool read(std::istringstream &iss);
-    bool read_people(std::ifstream &f, float min_lat, float min_long, float gspacing_x, float gspacing_y);
+    bool read_people(std::ifstream &f, float min_lng, float min_lat, float gspacing_x, float gspacing_y);
 };
 
 struct UrbanPopData {
     // each block group has around 1500 people
     amrex::Vector<BlockGroup> block_groups;
     std::unordered_map<int64_t, int> block_group_workers;
-    float min_lat, min_long;
+    float min_lng, min_lat;
     float gspacing_x, gspacing_y;
 
     /*! \brief Null constructor */
