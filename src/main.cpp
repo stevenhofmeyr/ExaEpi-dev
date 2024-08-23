@@ -119,9 +119,7 @@ void runAgent ()
     std::vector<CaseData> cases;
     cases.resize(params.num_diseases);
     for (int d = 0; d < params.num_diseases; d++) {
-        if (params.ic_type == ICType::Census && params.initial_case_type[d] == "file") {
-            cases[d].InitFromFile(params.disease_names[d], params.case_filename[d]);
-        }
+        if (params.initial_case_type[d] == "file") cases[d].InitFromFile(params.disease_names[d], params.case_filename[d]);
     }
 
     if (params.ic_type == ICType::Census) {

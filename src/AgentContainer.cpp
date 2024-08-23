@@ -45,7 +45,7 @@ void AgentContainer::add_attributes()
             AddRealComp(communicate_this_comp);
             count++;
         }
-        Print() << "Added " << count << " real-type run-time SoA attibute(s).\n";
+        Print() << "Added " << count << " real-type run-time SoA attibute(s) for diseases.\n";
     }
     {
         int count(0);
@@ -53,7 +53,7 @@ void AgentContainer::add_attributes()
             AddIntComp(communicate_this_comp);
             count++;
         }
-        Print() << "Added " << count << " integer-type run-time SoA attibute(s).\n";
+        Print() << "Added " << count << " integer-type run-time SoA attibute(s) for diseases.\n";
     }
     return;
 }
@@ -505,6 +505,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
     BL_PROFILE("initAgentsUrbanPop");
 
     ic_type = ExaEpi::ICType::UrbanPop;
+
     min_pos_x = ParticleGeom(0).ProbLo()[0];
     min_pos_y = ParticleGeom(0).ProbLo()[1];
 
@@ -515,8 +516,18 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
     FIPS_mf.setVal(-1);
     comm_mf.setVal(-1);
 
-    // only a single level
-    auto& particles  = GetParticles(0);
+    int Ncommunity = urban_pop.block_groups.size();
+
+    comm_teacher_counts_total_d.resize(Ncommunity, 0);
+    comm_teacher_counts_high_d.resize(Ncommunity, 0);
+    comm_teacher_counts_middle_d.resize(Ncommunity, 0);
+    comm_teacher_counts_elem3_d.resize(Ncommunity, 0);
+    comm_teacher_counts_elem4_d.resize(Ncommunity, 0);
+    comm_teacher_counts_daycr_d.resize(Ncommunity, 0);
+
+    Gpu::DeviceVector<long> student_teacher_ratios_d(student_teacher_ratios.size());
+    Gpu::copy(Gpu::hostToDevice, student_teacher_ratios.begin(), student_teacher_ratios.end(), student_teacher_ratios_d.begin());
+
     // collect all the block groups per box
     std::unordered_map<int, Vector<UrbanPop::BlockGroup>> box_block_groups;
     for (auto block_group : urban_pop.block_groups) {
@@ -530,16 +541,15 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         auto FIPS_arr = FIPS_mf[mfi].array();
         auto comm_arr = comm_mf[mfi].array();
         int box_i = mfi.index();
-        int tile_i = mfi.LocalTileIndex();
         auto bx = mfi.tilebox();
 
-        auto &ptile = particles[std::make_pair(box_i, tile_i)];
         auto &block_groups = box_block_groups[box_i];
         if (block_groups.empty()) continue;
         int tot_pop = 0;
         for (auto &block_group : block_groups) {
             tot_pop += block_group.people.size();
         }
+        auto &ptile = DefineAndReturnParticleTile(0, mfi);
         ptile.resize(tot_pop);
         auto dx = ParticleGeom(0).CellSizeArray();
         auto aos = &ptile.GetArrayOfStructs()[0];
@@ -553,13 +563,24 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         auto nborhood_ptr = soa.GetIntData(IntIdx::nborhood).data();
         auto school_ptr = soa.GetIntData(IntIdx::school).data();
         auto workgroup_ptr = soa.GetIntData(IntIdx::workgroup).data();
+        auto work_nborhood_ptr = soa.GetIntData(IntIdx::work_nborhood).data();
+        auto random_travel_ptr = soa.GetIntData(IntIdx::random_travel).data();
+
+        auto ratios = student_teacher_ratios_d.dataPtr();
+        auto comm_teacher_counts_total_d_ptr = comm_teacher_counts_total_d.data();
+        auto comm_teacher_counts_high_d_ptr = comm_teacher_counts_high_d.data();
+        auto comm_teacher_counts_middle_d_ptr = comm_teacher_counts_middle_d.data();
+        auto comm_teacher_counts_elem3_d_ptr = comm_teacher_counts_elem3_d.data();
+        auto comm_teacher_counts_elem4_d_ptr = comm_teacher_counts_elem4_d.data();
+        auto comm_teacher_counts_daycr_d_ptr = comm_teacher_counts_daycr_d.data();
+        auto student_counts_arr = student_counts[mfi].array();
 
         int i_RT = IntIdx::nattribs;
         int r_RT = RealIdx::nattribs;
         int n_disease = m_num_diseases;
 
-        GpuArray<int*,ExaEpi::max_num_diseases> status_ptrs;
-        GpuArray<ParticleReal*,ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs;
+        GpuArray<int*, ExaEpi::max_num_diseases> status_ptrs;
+        GpuArray<ParticleReal*, ExaEpi::max_num_diseases> counter_ptrs, timer_ptrs;
         for (int d = 0; d < n_disease; d++) {
             status_ptrs[d] = soa.GetIntData(i_RT+i0(d)+IntIdxDisease::status).data();
             counter_ptrs[d] = soa.GetRealData(r_RT+r0(d)+RealIdxDisease::disease_counter).data();
@@ -572,6 +593,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
             tot_np += block_group.people.size();
             int x = block_group.x;
             int y = block_group.y;
+            if (x == 3 && y == 156) Print() << "Found block group at " << x << "," << y << "\n";
             Real px = (Real)x * dx[0] + min_pos_x;
             Real py = (Real)y * dx[1] + min_pos_y;
             int n = block_group.people.size();
@@ -584,6 +606,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
             // Census tract is the 6 digits after the FIPS code
             int64_t tract = (geoid - (fips * 1e7)) / 10;
             //Print() << "GEOID " << geoid << " FIPS " << fips << " tract " << tract << "\n";
+            //Print() << "Set fips code " << fips << " for " << x << "," << y << "\n";
             FIPS_arr(x, y, 0, 0) = (int)fips;
             FIPS_arr(x, y, 0, 1) = (int)tract;
             comm_arr(x, y, 0) = (int)domain.index(IntVect(AMREX_D_DECL(x, y, 0)));
@@ -642,10 +665,30 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
                     // indicates that the agent doesn't work
                     workgroup_ptr[pi] = 0;
                 }
+                //work_nborhood_ptr[pi] = nborhood;
+                random_travel_ptr[pi] = -1;
 
-                if (age_group_ptr[pi] == 0) school_ptr[pi] = 5; // note - need to handle playgroups
-                else if (age_group_ptr[pi] == 1) school_ptr[pi] = assign_school(nborhood, engine);
-                else school_ptr[pi] = -1;
+                if (age_group_ptr[pi] == 0) {
+                    school_ptr[pi] = 5; // note - need to handle playgroups
+                } else if (age_group_ptr[pi] == 1) {
+                    school_ptr[pi] = assign_school(nborhood, engine);
+                } else {
+                    school_ptr[pi] = 0; // only use negative values to indicate school closed
+                }
+
+                // Increment the appropriate student counter based on the school assignment
+                if (school_ptr[pi] == SchoolType::elem_3) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::elem_3), 1);
+                } else if (school_ptr[pi] == SchoolType::elem_4) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::elem_4), 1);
+                } else if (school_ptr[pi] == SchoolType::middle) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::middle), 1);
+                } else if (school_ptr[pi] == SchoolType::high) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::high), 1);
+                } else if (school_ptr[pi] == SchoolType::day_care) {
+                    Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::day_care), 1);
+                }
+                if (school_ptr[pi] > 0) Gpu::Atomic::AddNoRet(&student_counts_arr(x, y, 0, SchoolType::total), 1);
             });
             // separate loop for setting the workgroup and randomizing workgroups
             for (int i = 0; i < n; i++) {
@@ -655,6 +698,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
                     int num_workgroups = max(round(urban_pop.block_group_workers[person.w_geoid] / workgroup_size), 1.0);
                     // workgroups are at least 1 to indicate worker
                     workgroup_ptr[pi] = Random_int(num_workgroups, engine) + 1;
+                    work_nborhood_ptr[pi] = workgroup_ptr[pi] % 4; // each workgroup is assigned to a neighborhood as well
                 }
             }
             // loop to set the household neighborhoods
@@ -669,6 +713,25 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
                     }
                 }
             });
+            // loop to set the teacher counts
+            amrex::ParallelFor(bx, [=] AMREX_GPU_DEVICE (int i, int j, int k) noexcept {
+                int comm = comm_arr(i,j,k);
+
+                comm_teacher_counts_high_d_ptr[comm]   = (int)((student_counts_arr(i, j, k, SchoolType::high))     / (ratios[SchoolType::high]));
+                comm_teacher_counts_middle_d_ptr[comm] = (int)((student_counts_arr(i, j, k, SchoolType::middle))   / (ratios[SchoolType::middle]));
+                comm_teacher_counts_elem3_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::elem_3))   / (ratios[SchoolType::elem_3]));
+                comm_teacher_counts_elem4_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::elem_4))   / (ratios[SchoolType::elem_4]));
+                comm_teacher_counts_daycr_d_ptr[comm]  = (int)((student_counts_arr(i, j, k, SchoolType::day_care)) / (ratios[SchoolType::day_care]));
+
+                int total = comm_teacher_counts_high_d_ptr[comm]
+                        + comm_teacher_counts_middle_d_ptr[comm]
+                        + comm_teacher_counts_elem3_d_ptr[comm]
+                        + comm_teacher_counts_elem4_d_ptr[comm]
+                        + comm_teacher_counts_daycr_d_ptr[comm];
+                comm_teacher_counts_total_d_ptr[comm] = total;
+                //Gpu::Atomic::AddNoRet(&unit_teacher_counts_d_ptr[unit_arr(i,j,k,0)],total);
+            });
+
             block_pi += n;
         }
 #ifdef DEBUG
@@ -682,7 +745,7 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         });*/
 #endif
     }
-    AllPrint() << "Process " << MyProc() << " has " << particles.size() << " boxes with a total of "
+    AllPrint() << "Process " << MyProc() << " has " << GetParticles(0).size() << " boxes with a total of "
                << tot_np << " particles for " << urban_pop.block_groups.size() << " block groups\n";
 }
 
@@ -1340,84 +1403,81 @@ void AgentContainer::writeAgentsFile (const string &fname, int step_number) {
 void AgentContainer::infectAgents (const CaseData &cases, int disease_i) {
     BL_PROFILE("AgentContainer::infectAgents");
     // infect with given probability
-    // FIXME: this isn't accurate enough. Need to actually randomly pick agents until we have enough
-    for (int lev = 0; lev <= finestLevel(); ++lev) {
-        auto& plev  = GetParticles(lev);
-        int *num_candidates = new int[cases.num_cases.size()];
-        memset(num_candidates, 0, sizeof(int) * cases.num_cases.size());
-        const int *num_cases = cases.num_cases.data();
-        // first count up the number of candidates in each FIPS code, for each process
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-            auto& soa = ptile.GetStructOfArrays();
-            const auto np = ptile.numParticles();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            auto FIPS_arr = FIPS_mf[mfi].array();
-
-            //ParallelFor( np, [=] AMREX_GPU_DEVICE (int ip) noexcept
-            for (int i = 0; i < np; i++) {
-                int fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
-                if (fips == -1)
-                    Abort("FIPS code not set for " + std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
-                if (cases.num_cases[fips]) num_candidates[fips]++;
-            }
+    auto& particles = GetParticles(0);
+    int *num_candidates = new int[cases.num_cases.size()];
+    memset(num_candidates, 0, sizeof(int) * cases.num_cases.size());
+    const int *num_cases = cases.num_cases.data();
+    // first count up the number of candidates in each FIPS code, for each process
+    for (MFIter mfi = MakeMFIter(0, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        auto& ptile = particles[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& soa = ptile.GetStructOfArrays();
+        const auto np = ptile.numParticles();
+        auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+        auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+        auto FIPS_arr = FIPS_mf[mfi].array();
+        for (int i = 0; i < np; i++) {
+            int fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
+            if (fips == -1)
+                Abort(std::to_string(__LINE__) + ": FIPS code not set for agent " + std::to_string(i) + " " +
+                      std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
+            if (cases.num_cases[fips]) num_candidates[fips]++;
         }
-        // sum up the number of candidates for each FIPS code
-        // FIXME: this is one reduction per FIPS code, which may be really excessive if we have a wide distribution of initial
-        // infections
-        int tot_num_infections = 0;
-        for (int i = 0; i < cases.num_cases.size(); i++) {
-            if (cases.num_cases[i]) {
-                int tot_num_candidates = num_candidates[i];
-                ParallelDescriptor::ReduceIntSum(tot_num_candidates);
-                AllPrint() << "Process " << MyProc() << " FIPS " << i << " cases " << cases.num_cases[i]
-                           << " candidates " << num_candidates[i] << " total " << tot_num_candidates << "\n";
-                num_candidates[i] = tot_num_candidates;
-                tot_num_infections += cases.num_cases[i];
-            }
+    }
+    // sum up the number of candidates for each FIPS code
+    // FIXME: this is one reduction per FIPS code, which may be really excessive if we have a wide distribution of initial
+    // infections
+    int tot_num_infections = 0;
+    for (int i = 0; i < cases.num_cases.size(); i++) {
+        if (cases.num_cases[i]) {
+            int tot_num_candidates = num_candidates[i];
+            ParallelDescriptor::ReduceIntSum(tot_num_candidates);
+            AllPrint() << "Process " << MyProc() << " FIPS " << i << " cases " << cases.num_cases[i]
+                        << " candidates " << num_candidates[i] << " total " << tot_num_candidates << "\n";
+            num_candidates[i] = tot_num_candidates;
+            tot_num_infections += cases.num_cases[i];
         }
-        const auto* lparm = getDiseaseParameters_d(disease_i);
-        // infect with probability determined by the total number of candidates and infections
-        int num_infected = 0;
-        int i_RT = IntIdx::nattribs;
-        int r_RT = RealIdx::nattribs;
-        for (MFIter mfi = MakeMFIter(lev, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
-            auto& ptile = plev[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
-            auto& soa = ptile.GetStructOfArrays();
-            const auto np = ptile.numParticles();
-            auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
-            auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
-            auto status_ptr = soa.GetIntData(i_RT + i0(disease_i) + IntIdxDisease::status).data();
-            auto counter_ptr = soa.GetRealData(r_RT + r0(disease_i) + RealIdxDisease::disease_counter).data();
-            auto timer_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::treatment_timer).data();
-            auto incubation_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::incubation_period).data();
-            auto infectious_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::infectious_period).data();
-            auto symptomdev_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::symptomdev_period).data();
-            auto FIPS_arr = FIPS_mf[mfi].array();
-            RandomEngine engine;
-            for (int i = 0; i < np; i++) {
-                auto fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
-                if (fips == -1)
-                    Abort("FIPS code not set for " + std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
-                auto cases_in_fips = num_cases[fips];
-                if (cases_in_fips) {
-                    if (Random_int(num_candidates[fips], engine) < cases_in_fips) {
-                        status_ptr[i] = Status::infected;
-                        counter_ptr[i] = 0;
-                        timer_ptr[i] = 0;
-                        incubation_period_ptr[i] = RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
-                        infectious_period_ptr[i] = RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
-                        symptomdev_period_ptr[i] = RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
-                        num_infected++;
-                    }
+    }
+    const auto* lparm = getDiseaseParameters_d(disease_i);
+    // infect with probability determined by the total number of candidates and infections
+    int num_infected = 0;
+    int i_RT = IntIdx::nattribs;
+    int r_RT = RealIdx::nattribs;
+    for (MFIter mfi = MakeMFIter(0, TilingIfNotGPU()); mfi.isValid(); ++mfi) {
+        auto& ptile = particles[std::make_pair(mfi.index(), mfi.LocalTileIndex())];
+        auto& soa = ptile.GetStructOfArrays();
+        const auto np = ptile.numParticles();
+        auto home_i_ptr = soa.GetIntData(IntIdx::home_i).data();
+        auto home_j_ptr = soa.GetIntData(IntIdx::home_j).data();
+        auto status_ptr = soa.GetIntData(i_RT + i0(disease_i) + IntIdxDisease::status).data();
+        auto counter_ptr = soa.GetRealData(r_RT + r0(disease_i) + RealIdxDisease::disease_counter).data();
+        auto timer_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::treatment_timer).data();
+        auto incubation_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::incubation_period).data();
+        auto infectious_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::infectious_period).data();
+        auto symptomdev_period_ptr = soa.GetRealData(r_RT+r0(disease_i)+RealIdxDisease::symptomdev_period).data();
+        auto FIPS_arr = FIPS_mf[mfi].array();
+        RandomEngine engine;
+        for (int i = 0; i < np; i++) {
+            auto fips = FIPS_arr(home_i_ptr[i], home_j_ptr[i], 0, 0);
+            if (fips == -1)
+                Abort(std::to_string(__LINE__) + ": FIPS code not set for agent " + std::to_string(i) + " " +
+                      std::to_string(home_i_ptr[i]) + "," + std::to_string(home_j_ptr[i]));
+            auto cases_in_fips = num_cases[fips];
+            if (cases_in_fips) {
+                if (Random_int(num_candidates[fips], engine) < cases_in_fips) {
+                    status_ptr[i] = Status::infected;
+                    counter_ptr[i] = 0;
+                    timer_ptr[i] = 0;
+                    incubation_period_ptr[i] = RandomNormal(lparm->latent_length_mean, lparm->latent_length_std, engine);
+                    infectious_period_ptr[i] = RandomNormal(lparm->infectious_length_mean, lparm->infectious_length_std, engine);
+                    symptomdev_period_ptr[i] = RandomNormal(lparm->incubation_length_mean, lparm->incubation_length_std, engine);
+                    num_infected++;
                 }
             }
         }
-        AllPrint() << "Process " << MyProc() << " number infected " << num_infected << "\n";
-        ParallelDescriptor::ReduceIntSum(num_infected);
-        Print() << "Actual total number infected " << num_infected << " instead of " << tot_num_infections << " cases\n";
     }
+    AllPrint() << "Process " << MyProc() << " number infected " << num_infected << "\n";
+    ParallelDescriptor::ReduceIntSum(num_infected);
+    Print() << "Actual total number infected " << num_infected << " instead of " << tot_num_infections << " cases\n";
 }
 
 /*! \brief Interaction with agents on random travel */

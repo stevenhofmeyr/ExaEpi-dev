@@ -13,6 +13,9 @@
 
 #include <string>
 
+#define DBG_MSG(msg) \
+    do {std::cerr << "\x1B[31m" << "<" << __FILE__ << ":" << __LINE__ << "> " << msg << "\x1B[0m" << "\n"; } while (0)
+
 namespace ExaEpi
 {
 
