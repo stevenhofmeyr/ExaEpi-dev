@@ -61,7 +61,7 @@ def plot_cities(realcoords):
 
 def plot_population(df, realcoords, worklocs, citylocs):
     px = 1.0 / plt.rcParams['figure.dpi']
-    _, ax = plt.subplots(figsize=(1920*px, 1200*px))
+    _, ax = plt.subplots(figsize=(1870*px, 1070*px))
 
     if realcoords == False:
         if worklocs == True:

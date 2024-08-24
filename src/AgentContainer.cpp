@@ -458,23 +458,6 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
         int my_proc = MyProc();
         int block_pi = 0;
 
-        /*for (auto &block_group : block_groups) {
-            auto people = &block_group.people[0];
-            int n = block_group.people.size();
-            int x = block_group.x;
-            int y = block_group.y;
-            tot_np += n;
-            ParallelForRNG(n, [=] AMREX_GPU_DEVICE (int i, RandomEngine const& engine) noexcept {
-                auto &person = people[i];
-                int pi = block_pi + i;
-                auto &agent = aos[pi];
-                agent.id()  = person.p_id;
-                agent.cpu() = my_proc;
-                set_particle_pos(agent, x, y, cell_size_array, prob_lo_array);
-            });
-            block_pi += n;
-        }*/
-
         for (auto &block_group : block_groups) {
             int n = block_group.people.size();
             int x = block_group.x;
@@ -584,7 +567,6 @@ void AgentContainer::initAgentsUrbanPop (BoxArray &ba, DistributionMapping &dm, 
     }
     AllPrint() << "Process " << MyProc() << " has " << particles.size() << " boxes with a total of "
                << tot_np << " particles for " << urban_pop.block_groups.size() << " block groups\n";
-    AllPrint() << "numParticlesOutOfRange " << numParticlesOutOfRange(*this, 0) << "\n";
     AMREX_ALWAYS_ASSERT(OK());
 }
 
